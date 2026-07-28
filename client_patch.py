@@ -18,7 +18,7 @@ import re
 from client_config import CLIENT_HTML
 
 ORIGIN = "http://127.0.0.1:8765"
-VERSION = 7   # a incrementer si le bloc ci-dessous change
+VERSION = 8   # a incrementer si le bloc ci-dessous change
 
 # L'overlay est un conteneur deplacable (barre du haut) et redimensionnable
 # (poignee en bas a gauche). La geometrie est memorisee dans localStorage, et
@@ -54,10 +54,18 @@ function clamp(g){var W=innerWidth,H=innerHeight;
 function apply(g){ov.style.left=g.l+'px';ov.style.top=g.t+'px';
   ov.style.width=g.w+'px';ov.style.height=g.h+'px';ov.style.right='auto';}
 function geo(){return{l:ov.offsetLeft,t:ov.offsetTop,w:ov.offsetWidth,h:ov.offsetHeight};}
-function save(){try{localStorage.setItem(K,JSON.stringify(geo()));}catch(e){}}
+var B='__ORIGIN__';
+function save(){var g=geo();try{localStorage.setItem(K,JSON.stringify(g));}catch(e){}
+  // Le client du jeu efface son localStorage a chaque lancement : on persiste
+  // aussi cote bot pour que la position/taille survivent.
+  try{fetch(B+'/overlay/geo?l='+Math.round(g.l)+'&t='+Math.round(g.t)
+        +'&w='+Math.round(g.w)+'&h='+Math.round(g.h));}catch(e){}}
 function def(){return clamp({w:320,h:Math.round(innerHeight*0.7),l:innerWidth-320,t:0});}
-function init(){var g;try{g=JSON.parse(localStorage.getItem(K));}catch(e){}
-  apply(clamp(g&&g.w?g:def()));}
+function local(){try{var g=JSON.parse(localStorage.getItem(K));if(g&&g.w)return g;}catch(e){}return null;}
+function init(){
+  fetch(B+'/overlay/geo').then(function(r){return r.json();}).then(function(g){
+    apply(clamp(g&&g.w?g:(local()||def())));
+  }).catch(function(){apply(clamp(local()||def()));});}
 function drag(e,mode){e.preventDefault();fr.style.pointerEvents='none';
   var sx=e.clientX,sy=e.clientY,b=geo();
   function mv(e){var dx=e.clientX-sx,dy=e.clientY-sy,g;

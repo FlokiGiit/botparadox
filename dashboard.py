@@ -76,6 +76,27 @@ def _post_bridge(payload):
         return {"success": False, "error": f"pont injoignable : {e}"}
 
 
+_GEO_FILE = _data("overlay.json")
+
+
+def _load_overlay_geo():
+    """Position/taille de l'overlay, persistees cote bot : le client du jeu
+    efface son localStorage a chaque lancement, d'ou le reset sinon."""
+    try:
+        with open(_GEO_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_overlay_geo(geo):
+    try:
+        with open(_GEO_FILE, "w", encoding="utf-8") as f:
+            json.dump(geo, f)
+    except OSError:
+        pass
+
+
 def build_fuse(stats, template_id):
     """Construit l'action de craft pour un item : retrouve un guid par
     ingredient dans le sac. Renvoie (payload, erreur)."""
@@ -746,6 +767,25 @@ async def _handle(reader, writer):
             print("[bot] arrêt demandé par l'interface.", flush=True)
             # On laisse la réponse partir avant de couper.
             asyncio.get_running_loop().call_later(0.2, lambda: os._exit(0))
+            return
+
+        if path.startswith("/overlay/geo"):
+            # Sans parametres -> renvoie la geometrie sauvee ; avec -> sauve.
+            import urllib.parse as up
+            body = b'{}'
+            try:
+                q = up.parse_qs(path.split("?", 1)[1]) if "?" in path else {}
+                if q:
+                    geo = {k: float(v[0]) for k, v in q.items()
+                           if k in ("l", "t", "w", "h")}
+                    _save_overlay_geo(geo)
+                    body = b'{"ok":true}'
+                else:
+                    body = json.dumps(_load_overlay_geo()).encode()
+            except (ValueError, IndexError, KeyError):
+                pass
+            writer.write(_headers("application/json", len(body)) + body)
+            await writer.drain()
             return
 
         if path.startswith("/overlay"):
