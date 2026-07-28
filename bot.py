@@ -410,6 +410,27 @@ class Brain:
                     self.stats.bag[model] = sum(
                         self.stats.bag_uids.get(model, {}).values())
 
+        elif msg.startswith("OR"):
+            # OR<uid> : objet retiré de l'inventaire (consommé par un craft,
+            # jeté, vendu...). Sans ça, un ingrédient fusionné restait "présent"
+            # dans le calculateur -> ressources non mises à jour, et l'item cible
+            # ne devenait jamais craftable faute de voir ses ingrédients partir.
+            uid = msg[2:].strip()
+            if uid:
+                gd = gamedata.get()
+                # Le sac indexe les uid en décimal ; l'uid d'OR peut arriver en
+                # décimal ou en hex — on résout les deux.
+                if gd.model_of(uid) is None:
+                    try:
+                        uid = str(int(uid, 16))
+                    except ValueError:
+                        pass
+                model = gd.model_of(uid)
+                if model is not None:
+                    self.stats.bag_uids.get(model, {}).pop(uid, None)
+                    self.stats.bag[model] = sum(
+                        self.stats.bag_uids.get(model, {}).values())
+
         elif msg.startswith("ECK"):
             # Ouverture d'un échange. Type 5 = banque (coffre) : les paquets ELO
             # qui suivent listent son contenu, qu'on compte dans le calculateur.
