@@ -131,6 +131,28 @@ class GameData:
             bag.setdefault(model, {})[uid] = qty
         return bag
 
+    def parse_bank(self, payload):
+        """Contenu de la BANQUE (echange ECK5, paquet ELO).
+
+        Meme format par objet que le sac (guid~modele~quantite~position~effets,
+        en hexa), mais objets separes par ';;', chacun prefixe 'O', avec un
+        'G<kamas>' final. Renvoie {modele: quantite totale}."""
+        bank = {}
+        for seg in payload.split(";;"):
+            seg = seg.lstrip("O")
+            if not seg or seg[0] == "G":     # G<kamas> : pas un objet
+                continue
+            bits = seg.split("~")
+            if len(bits) < 3:
+                continue
+            try:
+                model = str(int(bits[1], 16))
+                qty = int(bits[2], 16) if bits[2] else 1
+            except ValueError:
+                continue
+            bank[model] = bank.get(model, 0) + qty
+        return bank
+
     def learn_objects(self, payload):
         """Lit une liste d'objets telle qu'envoyée par OAK ou ASK.
 

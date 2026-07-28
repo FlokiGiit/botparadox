@@ -48,6 +48,7 @@ input,select{width:100%;padding:8px;border-radius:7px;border:1px solid #333;
 .have{color:#7dd3a0}.miss{color:#e05561}
 .done{opacity:.45}
 .cr{font-size:8px;color:#4a9eff;text-transform:uppercase;margin-left:4px}
+.bk{font-size:10px;color:#79c0ff;margin:0 4px;font-variant-numeric:tabular-nums}
 .node{border-left:2px solid #262a33}
 .node.cl{cursor:pointer}.chev{width:12px;flex:none;color:#7d8797;font-size:9px}
 .fuse{cursor:pointer;background:#4a9eff;color:#0d1117;font-weight:700;border-radius:5px;padding:2px 7px;font-size:11px;margin-left:6px}
@@ -145,6 +146,7 @@ function renderTree(){
       +`style="margin-left:${n.depth*13}px;font-size:${sz}px">`
       +`<span class="chev">${chev}</span>${img(n.gfx)}`
       +`<span class="n">${n.name}${n.craftable?'<span class="cr">craft</span>':''}</span>`
+      +(n.bank?`<span class="bk" title="${n.bank} en banque">&#127974;${n.bank}</span>`:"")
       +`<span class="q ${ok?'have':'miss'}">${n.have}/${n.need}</span>`
       +(n.canfuse?`<span class="fuse" onclick="fuse(${n.id},event)">Fusionner</span>`:"")
       +`</div>`;

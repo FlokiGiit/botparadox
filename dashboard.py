@@ -160,6 +160,7 @@ class Stats:
         self.bag = {}             # modele -> quantite en sac (hors equipe)
         self.bag_uids = {}        # modele -> {uid: quantite} (pour crafter)
         self.equipped = {}        # modele -> quantite equipee
+        self.bank = {}            # modele -> quantite en banque (via ELO/ECK5)
         self.level_start = None   # niveau au debut de la session
         self.session_levels = 0   # niveaux gagnes cette session
         self.xp_floor = None      # plancher du niveau courant, pour detecter un up
@@ -228,8 +229,11 @@ class Stats:
         # L'equipe ne compte que pour les Bouclier et Familier : un tel item
         # deja porte est acquis. Les Dofus equipes (dans le Dofus) restent
         # exclus, car utilises.
+        def bank_of(tid):
+            return self.bank.get(str(tid), 0)
+
         def have(tid):
-            h = self.bag.get(str(tid), 0)
+            h = self.bag.get(str(tid), 0) + bank_of(tid)
             if b.type.get(tid) in ("Bouclier", "Familier"):
                 h += self.equipped.get(str(tid), 0)
             return h
@@ -253,6 +257,7 @@ class Stats:
                 "gfx": icon(node["id"]),
                 "need": node["need"],
                 "have": have(node["id"]),
+                "bank": bank_of(node["id"]),   # dont X en banque (indicateur)
                 "depth": node["depth"],
                 "craftable": node["craftable"],
                 "canfuse": can_fuse(node["id"]),
