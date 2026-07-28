@@ -1,6 +1,5 @@
 ;!@Install@!UTF-8!
 Title="Bot Paradox"
-BeginPrompt="Installer Bot Paradox ? Le client Nexus sera patché pour afficher l'overlay (loot, fusion, stats). Rien d'autre à installer."
-Progress="yes"
+Progress="no"
 RunProgram="Installer.bat"
 ;!@InstallEnd@!
