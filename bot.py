@@ -416,8 +416,9 @@ class Brain:
             self.bank_mode = (msg[3:].strip() == "5")
 
         elif msg.startswith("ELO") and self.bank_mode:
-            # Liste complète de la banque : on remplace le contenu connu.
-            self.stats.bank = gamedata.get().parse_bank(msg[3:])
+            # Liste complète de la banque : on remplace et on mémorise sur disque
+            # (le contenu survit ainsi aux redémarrages, sans rouvrir la banque).
+            self.stats.set_bank(gamedata.get().parse_bank(msg[3:]))
 
         elif msg.startswith("EV"):
             self.bank_mode = False   # échange fermé

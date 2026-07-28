@@ -32,7 +32,7 @@ SETUP_EXE = os.path.join(PUBLISH, "BotParadox-Setup.exe")
 INSTALLER_DIR = os.path.join(PROJECT, "installer")
 
 # Fichiers data specifiques a une machine : jamais embarques.
-SKIP_DATA = {"session.json", "client_path.txt", "client_override.txt"}
+SKIP_DATA = {"session.json", "client_path.txt", "client_override.txt", "bank.json"}
 
 
 def run(cmd, **kw):

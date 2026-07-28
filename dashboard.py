@@ -160,7 +160,10 @@ class Stats:
         self.bag = {}             # modele -> quantite en sac (hors equipe)
         self.bag_uids = {}        # modele -> {uid: quantite} (pour crafter)
         self.equipped = {}        # modele -> quantite equipee
-        self.bank = {}            # modele -> quantite en banque (via ELO/ECK5)
+        # Banque : capturee a l'ouverture (ELO/ECK5) et MEMORISEE sur disque,
+        # car le serveur ne l'envoie qu'a l'ouverture. On la garde donc entre
+        # les sessions : ouvrir la banque une fois suffit, meme apres restart.
+        self.bank = self._load_bank()
         self.level_start = None   # niveau au debut de la session
         self.session_levels = 0   # niveaux gagnes cette session
         self.xp_floor = None      # plancher du niveau courant, pour detecter un up
@@ -263,6 +266,22 @@ class Stats:
                 "canfuse": can_fuse(node["id"]),
             })
         return {"targets": targets, "tree": tree}
+
+    def _load_bank(self):
+        try:
+            with open(_data("bank.json"), encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return {}
+
+    def set_bank(self, bank):
+        """Mémorise la banque capturée et la persiste (elle survit au restart)."""
+        self.bank = bank
+        try:
+            with open(_data("bank.json"), "w", encoding="utf-8") as f:
+                json.dump(bank, f)
+        except OSError:
+            pass
 
     def observe_xp(self, total):
         """Accumule le gain d'XP. Le premier total sert de reference sans

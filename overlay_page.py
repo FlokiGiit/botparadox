@@ -48,7 +48,9 @@ input,select{width:100%;padding:8px;border-radius:7px;border:1px solid #333;
 .have{color:#7dd3a0}.miss{color:#e05561}
 .done{opacity:.45}
 .cr{font-size:8px;color:#4a9eff;text-transform:uppercase;margin-left:4px}
-.bk{font-size:10px;color:#79c0ff;margin:0 4px;font-variant-numeric:tabular-nums}
+.bk{font-size:12px;color:#0d1117;background:#79c0ff;border-radius:7px;
+    padding:1px 6px;margin:0 5px;font-weight:700;font-variant-numeric:tabular-nums;
+    white-space:nowrap}
 .node{border-left:2px solid #262a33}
 .node.cl{cursor:pointer}.chev{width:12px;flex:none;color:#7d8797;font-size:9px}
 .fuse{cursor:pointer;background:#4a9eff;color:#0d1117;font-weight:700;border-radius:5px;padding:2px 7px;font-size:11px;margin-left:6px}
