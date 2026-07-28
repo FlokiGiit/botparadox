@@ -214,7 +214,9 @@ class Brain:
             self.combat.reset(active=True)
             self.stats.fight_start()
             self.say("combat détecté -> récolte en veille")
-            if AUTO_COMBAT and self.stats.enabled:
+            # Mode observateur : on regarde le combat sans y toucher — donc pas
+            # d'auto-"prêt" non plus (cohérent avec l'IA de combat plus bas).
+            if AUTO_COMBAT and self.stats.enabled and self.stats.mode != "off":
                 asyncio.create_task(self._announce_ready())
 
         elif msg.startswith("GE"):
