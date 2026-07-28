@@ -160,14 +160,24 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(repo) || repo!.StartsWith("OWNER/")) return;
         try
         {
+            var raw = ReadSideFile("version.txt");
+            var local = LocalVersion();
+            LogUpdate($"check: exe={Environment.ProcessPath}");
+            LogUpdate($"check: install={InstallDir()} version.txt='{raw}' -> local={local}");
+
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
             http.DefaultRequestHeaders.UserAgent.ParseAdd("BotParadox-Updater");
             var json = await http.GetStringAsync(
                 $"https://api.github.com/repos/{repo}/releases/latest");
             using var doc = JsonDocument.Parse(json);
             var tag = doc.RootElement.GetProperty("tag_name").GetString() ?? "";
-            if (!Version.TryParse(tag.TrimStart('v', 'V'), out var remote)) return;
-            if (remote <= LocalVersion()) return;
+            if (!Version.TryParse(tag.TrimStart('v', 'V'), out var remote))
+            {
+                LogUpdate($"check: tag distant illisible '{tag}'");
+                return;
+            }
+            LogUpdate($"check: distant={remote}  -> {(remote > local ? "MAJ dispo" : "a jour")}");
+            if (remote <= local) return;
 
             foreach (var a in doc.RootElement.GetProperty("assets").EnumerateArray())
             {
@@ -185,7 +195,7 @@ public partial class MainWindow : Window
                     UpdateBtn.IsVisible = true;
                 });
         }
-        catch { /* hors ligne ou release indisponible : on ignore */ }
+        catch (Exception ex) { LogUpdate($"check ECHEC: {ex.GetType().Name} {ex.Message}"); }
     }
 
     static void LogUpdate(string msg)
