@@ -1,0 +1,241 @@
+"""
+Proxy TCP entre le client Flash (Ruffle) et le serveur de jeu Paradox.
+
+Relaie intégralement les deux sens, journalise tout, et expose un point
+d'accroche (`brain`) qui voit passer chaque paquet et peut en injecter.
+
+Le brain injecte directement dans la socket serveur : ses paquets ne
+traversent donc jamais le flux client->serveur. C'est ce qui permet de
+distinguer sans ambiguïté une action du joueur d'une action du bot.
+
+Usage :  python proxy.py          (relais seul, sans bot)
+         python bot.py            (relais + bot de récolte)
+"""
+
+import asyncio
+import json
+import os
+import sys
+from datetime import datetime
+
+# La console Windows est en cp1252 : sans ça, afficher un octet non-ASCII lève
+# UnicodeEncodeError. Cette exception remontait jusqu'à tuer le relais et
+# fermer la connexion de jeu — d'où un "Connexion interrompue" dans le client.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+from apppaths import HANDOFF_FILE, LOG_DIR
+
+LISTEN_HOST = "127.0.0.1"
+LISTEN_PORT = 5555
+
+DELIM = b"\x00"
+
+# Opcodes bruyants : toujours écrits dans le fichier, masqués dans la console.
+MUTE_IN_CONSOLE = {"BD", "BT", "gIG", "gIM", "cMK", "Im", "am", "BN", "cs"}
+
+# Tout ce qu'on a déjà observé en jeu (récolte, déplacement, chat, guilde...).
+# Un opcode absent de cette liste est du jamais-vu : il est signalé bruyamment
+# et copié dans logs/nouveaux-opcodes.log. C'est ce qui nous donnera la liste
+# des paquets de combat au premier affrontement, sans avoir à les deviner.
+KNOWN_OPCODES = {
+    "AL", "ALK", "AR", "AS", "ASK", "AT", "ATK", "AV", "Af", "Agf", "Ak", "As",
+    "BD", "BM", "BN", "BT", "CW", "CWJ", "EV", "EW", "FO", "GA", "GC", "GCK",
+    "GDF", "GDK", "GDM", "GKK", "GM", "GV", "Gp", "Gr", "Gz", "HG", "ILS",
+    "IQ", "Im", "Ir", "JN", "JO", "JS", "JX", "OQ", "OS", "Ow", "RMC", "RMD",
+    "Rx", "SL", "ST", "SV", "ZS", "al", "am", "cC", "cMK", "cs", "eL", "fC",
+    "gIG", "gIM", "gSR", "xC", "?",
+}
+
+
+class Tee:
+    def __init__(self, path):
+        self.fh = open(path, "a", encoding="utf-8", buffering=1)
+        self.path = path
+
+    def line(self, direction, opcode, payload, muted):
+        # Règle absolue : la journalisation ne doit JAMAIS pouvoir interrompre
+        # le relais. Toute erreur ici est avalée — perdre une ligne de log est
+        # sans conséquence, perdre la connexion déconnecte le joueur.
+        try:
+            ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            text = f"[{ts}] {direction} {opcode:<4} | {payload}"
+            self.fh.write(text + "\n")
+            if not muted:
+                print(text, flush=True)
+        except Exception:
+            pass
+
+    def novelty(self, direction, opcode, payload):
+        """Signale un opcode jamais observé, et l'archive à part.
+
+        Les paquets de combat nous sont totalement inconnus : plutôt que de
+        les deviner, on les laisse se révéler tout seuls au premier combat.
+        """
+        try:
+            line = f"{datetime.now():%H:%M:%S.%f} {direction} {opcode} | {payload}"
+            with open(os.path.join(LOG_DIR, "nouveaux-opcodes.log"),
+                      "a", encoding="utf-8") as fh:
+                fh.write(line + "\n")
+            print(f"  >>> OPCODE INCONNU  {direction} {opcode} | {payload[:160]}",
+                  flush=True)
+        except Exception:
+            pass
+
+    def note(self, text):
+        try:
+            ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            line = f"[{ts}] --- {text}"
+            self.fh.write(line + "\n")
+            print(line, flush=True)
+        except Exception:
+            pass
+
+
+class Session:
+    """Poignée donnée au brain pour émettre des paquets."""
+
+    def __init__(self, client_writer, server_writer, log):
+        self.client_writer = client_writer
+        self.server_writer = server_writer
+        self.log = log
+
+    def to_server(self, payload):
+        """Envoie un paquet au serveur en imitant le client (qui suffixe \\n)."""
+        self.log.note(f"BOT -> {payload}")
+        self.server_writer.write(payload.encode("latin-1") + b"\n" + DELIM)
+
+    def to_client(self, payload):
+        self.server_writer  # noqa - symétrie
+        self.client_writer.write(payload.encode("latin-1") + DELIM)
+
+
+def escape(msg):
+    """Rend le paquet affichable en ASCII pur, de façon réversible."""
+    return "".join(
+        ch if 32 <= ord(ch) < 127 else f"\\x{ord(ch):02x}" for ch in msg)
+
+
+def opcode_of(msg):
+    code = ""
+    for ch in msg[:3]:
+        if ch.isalpha():
+            code += ch
+        else:
+            break
+    return code or "?"
+
+
+def read_handoff():
+    if not os.path.exists(HANDOFF_FILE):
+        return None
+    try:
+        with open(HANDOFF_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if data.get("ip") and data.get("port"):
+            return data["ip"], int(data["port"])
+    except Exception as e:
+        print(f"[proxy] handoff.json illisible : {e}", file=sys.stderr)
+    return None
+
+
+async def pump(reader, writer, direction, log, brain, session, seen_new):
+    buf = b""
+    try:
+        while True:
+            chunk = await reader.read(65536)
+            if not chunk:
+                break
+
+            # On transmet d'abord : ni la journalisation ni le bot ne doivent
+            # ajouter de latence au jeu.
+            writer.write(chunk)
+            await writer.drain()
+
+            buf += chunk
+            while DELIM in buf:
+                raw, buf = buf.split(DELIM, 1)
+                if not raw:
+                    continue
+                msg = raw.decode("latin-1")
+                code = opcode_of(msg)
+                shown = escape(msg)
+                log.line(direction, code, shown, code in MUTE_IN_CONSOLE)
+                if code not in KNOWN_OPCODES and code not in seen_new:
+                    seen_new.add(code)
+                    log.novelty(direction, code, shown)
+                if brain is not None:
+                    try:
+                        brain.on_packet(direction, msg.strip("\n\r"), session)
+                    except Exception as e:
+                        log.note(f"BOT erreur ignorée : {e!r}")
+    except (ConnectionResetError, BrokenPipeError):
+        pass
+    finally:
+        try:
+            writer.close()
+        except Exception:
+            pass
+
+
+def make_handler(brain_factory=None):
+    async def on_client(client_reader, client_writer):
+        os.makedirs(LOG_DIR, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        log = Tee(os.path.join(LOG_DIR, f"session-{stamp}.log"))
+
+        log.note(f"client connecté depuis {client_writer.get_extra_info('peername')}")
+
+        target = read_handoff()
+        if not target:
+            log.note("ABANDON : handoff.json absent. Le jeu a-t-il redémarré ?")
+            client_writer.close()
+            return
+
+        host, port = target
+        log.note(f"ouverture vers le serveur de jeu {host}:{port}")
+        try:
+            server_reader, server_writer = await asyncio.open_connection(host, port)
+        except Exception as e:
+            log.note(f"ABANDON : connexion impossible : {e}")
+            client_writer.close()
+            return
+
+        session = Session(client_writer, server_writer, log)
+        brain = brain_factory(session) if brain_factory else None
+        log.note(f"relais actif — journal : {log.path}")
+
+        # Partagé entre les deux sens : un opcode n'est signalé qu'une fois.
+        seen_new = set()
+
+        await asyncio.gather(
+            pump(client_reader, server_writer, "C>S", log, brain, session, seen_new),
+            pump(server_reader, client_writer, "S>C", log, brain, session, seen_new),
+        )
+        if brain is not None and hasattr(brain, "close"):
+            try:
+                brain.close()
+            except Exception:
+                pass
+        log.note("session terminée")
+
+    return on_client
+
+
+async def serve(brain_factory=None):
+    server = await asyncio.start_server(
+        make_handler(brain_factory), LISTEN_HOST, LISTEN_PORT)
+    print(f"[proxy] en écoute sur {LISTEN_HOST}:{LISTEN_PORT}")
+    print(f"[proxy] logs dans {LOG_DIR}\n")
+    async with server:
+        await server.serve_forever()
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(serve())
+    except KeyboardInterrupt:
+        print("\n[proxy] arrêt.")

@@ -1,0 +1,23 @@
+# artefacts de build
+build_out/
+Publish/
+/BotParadox/
+*.spec
+__pycache__/
+*.pyc
+
+# sorties .NET
+ui/bin/
+ui/obj/
+
+# etat local / specifique a la machine
+logs/
+maps/
+handoff.json
+data/session.json
+data/client_path.txt
+data/client_override.txt
+data/*.bak
+
+# divers
+*.log

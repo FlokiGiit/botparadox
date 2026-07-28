@@ -1,0 +1,174 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:ui"
+        x:Class="ui.MainWindow"
+        Title="Bot Paradox" Width="880" Height="620"
+        Background="#14161a" MinWidth="640" MinHeight="480">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.k">
+      <Setter Property="Foreground" Value="#7d8797"/>
+      <Setter Property="FontSize" Value="11"/>
+    </Style>
+    <Style Selector="TextBlock.v">
+      <Setter Property="Foreground" Value="#e6e8eb"/>
+      <Setter Property="FontSize" Value="26"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+    <Style Selector="TextBlock.sub">
+      <Setter Property="Foreground" Value="#7d8797"/>
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="#1c1f26"/>
+      <Setter Property="BorderBrush" Value="#262a33"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="10"/>
+      <Setter Property="Padding" Value="14"/>
+    </Style>
+    <Style Selector="Button">
+      <Setter Property="Background" Value="#2a2f3a"/>
+      <Setter Property="Foreground" Value="#e6e8eb"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="Padding" Value="14,8"/>
+    </Style>
+  </Window.Styles>
+
+  <DockPanel Margin="16">
+
+    <!-- barre de contrôle -->
+    <Border DockPanel.Dock="Top" Classes="card" Margin="0,0,0,12">
+      <StackPanel Orientation="Horizontal" Spacing="12">
+        <Button x:Name="StartStop" Click="OnStartStop" Content="Démarrer"/>
+        <Button x:Name="Shutdown" Click="OnShutdown" Content="Arrêter le bot"
+                IsEnabled="False"/>
+        <Button x:Name="OpenWeb" Click="OnOpenWeb" Content="Tableau de bord web"/>
+        <Border Width="1" Background="#262a33" Margin="4,2"/>
+        <Button x:Name="TabObserve" Click="OnObserve" Content="Observer"/>
+        <Button x:Name="TabHarvest" Click="OnHarvest" Content="Harvest"/>
+        <Button x:Name="TabFarm" Click="OnFarm" Content="Farming"/>
+        <Ellipse x:Name="Dot" Width="10" Height="10" Fill="#e05561"
+                 VerticalAlignment="Center"/>
+        <TextBlock x:Name="Status" Classes="sub" VerticalAlignment="Center"
+                   Text="arrêté"/>
+        <Button x:Name="UpdateBtn" Click="OnUpdate" Content="Mettre à jour"
+                IsVisible="False" Background="#2f6f3f" Foreground="#eafff0"/>
+      </StackPanel>
+    </Border>
+
+    <!-- compteurs -->
+    <UniformGrid DockPanel.Dock="Top" Columns="6" Margin="0,0,0,12">
+      <Border x:Name="CardKills" Classes="card" Margin="0,0,6,0" IsVisible="False">
+        <StackPanel><TextBlock Classes="k" Text="MONSTRES TUÉS"/>
+          <TextBlock x:Name="Kills" Classes="v" Text="0"/>
+          <TextBlock x:Name="KillsRate" Classes="sub" TextWrapping="Wrap"/></StackPanel></Border>
+      <Border x:Name="CardXp" Classes="card" Margin="3,0" IsVisible="False">
+        <StackPanel><TextBlock Classes="k" Text="XP GAGNÉE"/>
+          <TextBlock x:Name="XpGained" Classes="v" Text="0"/>
+          <TextBlock x:Name="XpGainedRate" Classes="sub" TextWrapping="Wrap"/></StackPanel></Border>
+      <Border x:Name="CardKamas" Classes="card" Margin="3,0">
+        <StackPanel><TextBlock Classes="k" Text="KAMAS GAGNÉS"/>
+          <TextBlock x:Name="Kamas" Classes="v" Text="0"/>
+          <TextBlock x:Name="KamasRate" Classes="sub" TextWrapping="Wrap"/></StackPanel></Border>
+      <Border x:Name="CardHarvests" Classes="card" Margin="0,0,6,0">
+        <StackPanel><TextBlock Classes="k" Text="FAUCHAGES"/>
+          <TextBlock x:Name="Harvests" Classes="v" Text="0"/>
+          <TextBlock x:Name="Rate" Classes="sub" TextWrapping="Wrap"/></StackPanel></Border>
+      <Border Classes="card" Margin="3,0">
+        <StackPanel><TextBlock Classes="k" Text="COMBATS"/>
+          <TextBlock x:Name="Fights" Classes="v" Text="0"/></StackPanel></Border>
+      <Border x:Name="CardPods" Classes="card" Margin="3,0">
+        <StackPanel><TextBlock Classes="k" Text="PODS"/>
+          <TextBlock x:Name="Pods" Classes="v" Text="0"/>
+          <ProgressBar x:Name="PodsBar" Height="5" Margin="0,8,0,0" MinWidth="0"
+                       Foreground="#4a9eff" Background="#262a33"/></StackPanel></Border>
+      <Border Classes="card" Margin="3,0">
+        <StackPanel><TextBlock Classes="k" Text="NIVEAU"/>
+          <TextBlock x:Name="Level" Classes="v" Text="—"/>
+          <ProgressBar x:Name="XpBar" Height="5" Margin="0,8,0,0" MinWidth="0"
+                       Foreground="#7dd3a0" Background="#262a33"/>
+          <TextBlock x:Name="XpText" Classes="sub" TextWrapping="Wrap"/></StackPanel></Border>
+      <Border Classes="card" Margin="6,0,0,0">
+        <StackPanel><TextBlock Classes="k" Text="SESSION"/>
+          <TextBlock x:Name="Uptime" Classes="v" Text="0:00"/>
+          <TextBlock x:Name="MapId" Classes="sub"/></StackPanel></Border>
+    </UniformGrid>
+
+    <!-- trace brute du bot, sous les deux colonnes -->
+    <Border DockPanel.Dock="Bottom" Classes="card" Margin="0,12,0,0" Height="150">
+      <DockPanel>
+        <TextBlock DockPanel.Dock="Top" Classes="k" Text="TRACE" Margin="0,0,0,6"/>
+        <ScrollViewer>
+          <ItemsControl x:Name="Logs">
+            <ItemsControl.ItemTemplate><DataTemplate x:DataType="local:LogRow">
+              <Grid ColumnDefinitions="Auto,*">
+                <TextBlock Text="{Binding Time}" Classes="sub" Width="58"/>
+                <TextBlock Grid.Column="1" Text="{Binding Text}"
+                           Foreground="#9aa4b2" FontSize="12" TextWrapping="Wrap"/>
+              </Grid>
+            </DataTemplate></ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </DockPanel>
+    </Border>
+
+    <Grid ColumnDefinitions="*,12,*">
+
+      <Border Grid.Column="0" Classes="card">
+        <DockPanel>
+          <TextBlock x:Name="JobsTitle" DockPanel.Dock="Top" Classes="k"
+                     Text="MÉTIERS" Margin="0,0,0,8"/>
+          <ItemsControl x:Name="Jobs" DockPanel.Dock="Top" Margin="0,0,0,14">
+            <ItemsControl.ItemTemplate><DataTemplate x:DataType="local:JobRow">
+              <StackPanel Margin="0,0,0,8">
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Text="{Binding Name}" Foreground="#e6e8eb"/>
+                  <TextBlock Grid.Column="1" Classes="sub" Text="{Binding Detail}"/>
+                </Grid>
+                <ProgressBar Value="{Binding Pct}" Height="5" Margin="0,4,0,0" MinWidth="0"
+                             Foreground="#ffb454" Background="#262a33"/>
+              </StackPanel>
+            </DataTemplate></ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <TextBlock DockPanel.Dock="Top" Classes="k" Text="OBJETS RAMASSÉS"
+                     Margin="0,0,0,8"/>
+          <ItemsControl x:Name="Items">
+            <ItemsControl.ItemTemplate><DataTemplate x:DataType="local:ItemRow">
+              <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,3">
+                <Image Source="{Binding Icon}" Width="22" Height="22"
+                       Margin="0,0,8,0"/>
+                <TextBlock Grid.Column="1" Text="{Binding Name}"
+                           Foreground="#e6e8eb" VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2" Text="{Binding Gained}"
+                           Foreground="#7dd3a0" VerticalAlignment="Center"/>
+              </Grid>
+            </DataTemplate></ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </DockPanel>
+      </Border>
+
+      <Border Grid.Column="2" Classes="card">
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Top" Classes="k" Text="JOURNAL"
+                     Margin="0,0,0,8"/>
+          <ScrollViewer>
+            <ItemsControl x:Name="Events">
+              <ItemsControl.ItemTemplate><DataTemplate x:DataType="local:EventRow">
+                <Grid ColumnDefinitions="Auto,Auto,*" Margin="0,2">
+                  <TextBlock Text="{Binding Time}" Classes="sub"
+                             Width="58" VerticalAlignment="Center"/>
+                  <Image Grid.Column="1" Source="{Binding Icon}"
+                         Width="16" Height="16" Margin="0,0,6,0"/>
+                  <TextBlock Grid.Column="2" Text="{Binding Text}"
+                             Foreground="{Binding Colour}"
+                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                </Grid>
+              </DataTemplate></ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </DockPanel>
+      </Border>
+    </Grid>
+  </DockPanel>
+</Window>
