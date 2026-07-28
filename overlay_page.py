@@ -56,7 +56,6 @@ input,select{width:100%;padding:8px;border-radius:7px;border:1px solid #333;
 <div class="tabs">
   <b id="tabLoot" class="on" onclick="show('loot')">Loot</b>
   <b id="tabFus" onclick="show('fus')">Fusion</b>
-  <b id="tabDj" onclick="show('dj')">Donjon</b>
 </div>
 
 <div id="loot">
@@ -78,20 +77,6 @@ input,select{width:100%;padding:8px;border-radius:7px;border:1px solid #333;
   <div id="detail"></div>
 </div>
 
-<div id="dj" style="display:none">
-  <h1>Lancer un donjon</h1>
-  <select id="dgSel"></select>
-  <div style="display:flex;gap:6px;align-items:center">
-    <select id="dgTier" style="flex:1"></select>
-    <label style="flex:none;display:flex;align-items:center;gap:4px;font-size:11px;
-                  color:#7d8797;margin-bottom:6px;white-space:nowrap">
-      <input type="checkbox" id="dgNT" style="width:auto;margin:0"> sans TP</label>
-  </div>
-  <button class="go" onclick="startDj()">Lancer ce donjon</button>
-  <div id="dgMsg" class="empty"></div>
-  <div class="empty" style="margin-top:4px">Ton choix, pas Incarnam par defaut.</div>
-</div>
-
 <script>
 const label={dofus:"Dofus",relique:"Relique",energie:"Energie"};
 function compact(n){
@@ -101,7 +86,7 @@ function compact(n){
   return String(n);
 }
 function show(t){
-  ['loot','fus','dj'].forEach(function(x){
+  ['loot','fus'].forEach(function(x){
     document.getElementById(x).style.display=x===t?'':'none';
     document.getElementById('tab'+x[0].toUpperCase()+x.slice(1)).className=x===t?'on':'';
   });
@@ -191,39 +176,5 @@ async function tick(){
   treeCache=c.tree||[];
   renderTree();
 }
-// ── donjon ──
-async function loadDj(){
-  let list;
-  try{ list=await (await fetch('/dungeon/list')).json(); }catch(e){ return; }
-  const sel=document.getElementById('dgSel');
-  sel.innerHTML=list.map(d=>
-    `<option value="${d.id}" data-min="${d.minTier}" data-max="${d.maxTier}">${d.name}</option>`
-  ).join('');
-  const saved=localStorage.getItem('dg_id'); if(saved) sel.value=saved;
-  fillTiers();
-  sel.onchange=function(){ localStorage.setItem('dg_id',sel.value); fillTiers(); };
-}
-function fillTiers(){
-  const o=document.getElementById('dgSel').selectedOptions[0]; if(!o)return;
-  const min=+o.dataset.min||0, max=+o.dataset.max||5, t=document.getElementById('dgTier');
-  let h=''; for(let i=min;i<=max;i++) h+=`<option value="${i}">Tier ${i}</option>`;
-  t.innerHTML=h;
-  const st=localStorage.getItem('dg_tier'); if(st!==null&&st>=min&&st<=max) t.value=st;
-  t.onchange=function(){ localStorage.setItem('dg_tier',t.value); };
-}
-async function startDj(){
-  const id=document.getElementById('dgSel').value,
-        tier=document.getElementById('dgTier').value,
-        nt=document.getElementById('dgNT').checked?'?noteleport=1':'',
-        msg=document.getElementById('dgMsg');
-  if(!id) return;
-  msg.textContent='lancement...';
-  try{
-    const r=await (await fetch(`/dungeon/start/${id}/${tier}${nt}`)).json();
-    const ok=r.success!==false && (r.data===undefined||r.data.success!==false);
-    msg.textContent=ok?'donjon lance ✓':'echec : '+(r.error||(r.data&&r.data.error)||'refuse par le serveur');
-  }catch(e){ msg.textContent='erreur reseau'; }
-}
-loadDj();
 tick();setInterval(tick,1500);
 </script></body></html>"""

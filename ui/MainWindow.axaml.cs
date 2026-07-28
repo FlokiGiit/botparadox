@@ -116,7 +116,23 @@ public partial class MainWindow : Window
             if (!await IsAlive()) StartBot();
             _ = CheckUpdateAsync();   // en tache de fond, sans bloquer l'UI
         };
+        // Fermer la fenetre coupe TOUT : sans ca, botcore.exe survivait en fond
+        // et continuait a servir l'overlay meme apres fermeture de l'UI.
+        Closing += (_, _) => StopAllServices();
+    }
 
+    // Tue le bot suivi ET tout botcore orphelin (au cas ou l'UI n'aurait pas
+    // demarre cette instance). Synchrone : on quitte juste apres.
+    void StopAllServices()
+    {
+        try { if (_bot is { HasExited: false }) _bot.Kill(entireProcessTree: true); }
+        catch { }
+        try
+        {
+            foreach (var p in Process.GetProcessesByName("botcore"))
+                try { p.Kill(entireProcessTree: true); } catch { }
+        }
+        catch { }
     }
 
     // ── mises à jour (GitHub Releases) ───────────────────────────────────────
