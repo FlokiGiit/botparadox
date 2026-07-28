@@ -397,7 +397,17 @@ class Brain:
             # OQ<numéro d'objet>|<quantité totale du lot>
             item, _, qty = msg[2:].partition("|")
             if item.isdigit() and qty.isdigit():
-                self.stats.item_update(item, int(qty))
+                qty = int(qty)
+                self.stats.item_update(item, qty)
+                # Un drop qui grossit une pile déjà possédée passe par OQ (pas
+                # OAK) : sans ça, le calculateur de fusion ne voyait la nouvelle
+                # quantité qu'après avoir sorti/remis l'objet. On tient le sac à
+                # jour ici, par modèle, comme le fait le handler OAK.
+                model = gamedata.get().model_of(item)
+                if model is not None:
+                    self.stats.bag_uids.setdefault(model, {})[item] = qty
+                    self.stats.bag[model] = sum(
+                        self.stats.bag_uids.get(model, {}).values())
 
     # ── état ─────────────────────────────────────────────────────────────────
 

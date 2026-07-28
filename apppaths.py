@@ -12,6 +12,7 @@ recalculer depuis leur propre `__file__`.
 
 import os
 import sys
+import tempfile
 
 
 def _base_dir():
@@ -24,7 +25,19 @@ BASE_DIR = _base_dir()
 DATA_DIR = os.path.join(BASE_DIR, "data")
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 MAPS_DIR = os.path.join(BASE_DIR, "maps")
-HANDOFF_FILE = os.path.join(BASE_DIR, "handoff.json")
+
+# handoff.json DOIT etre au MEME endroit pour le client (qui l'ecrit) et pour le
+# bot (qui le lit), sinon le proxy ne trouve pas la cible et abandonne la
+# connexion ("ABANDON : handoff.json absent" -> deconnexion). On le met donc a
+# un emplacement FIXE, commun a toutes les versions du bot (dev, packagee,
+# installee) : peu importe le bot lance, ils partagent le meme fichier.
+_SHARED_DIR = os.path.join(
+    os.environ.get("LOCALAPPDATA") or tempfile.gettempdir(), "BotParadox")
+try:
+    os.makedirs(_SHARED_DIR, exist_ok=True)   # doit exister avant que le client ecrive
+except OSError:
+    pass
+HANDOFF_FILE = os.path.join(_SHARED_DIR, "handoff.json")
 
 
 def data(*parts):

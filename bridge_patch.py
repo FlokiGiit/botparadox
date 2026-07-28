@@ -25,7 +25,7 @@ from client_config import LOGIN_BRIDGE, PANEL_HANDLERS
 
 _HANDOFF_JS = HANDOFF_FILE.replace("\\", "\\\\")   # echappe pour une chaine JS
 
-REDIRECT_VERSION = 1
+REDIRECT_VERSION = 2   # v2 : handoff.json a un chemin fixe partage (apppaths)
 BRIDGE_VERSION = 1
 
 
