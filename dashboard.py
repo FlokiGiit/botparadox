@@ -76,6 +76,30 @@ def _post_bridge(payload):
         return {"success": False, "error": f"pont injoignable : {e}"}
 
 
+_DUNGEONS = None
+
+
+def dungeons():
+    """Liste des donjons (id, nom, tiers), livree dans data/dungeons.json."""
+    global _DUNGEONS
+    if _DUNGEONS is None:
+        try:
+            with open(_data("dungeons.json"), encoding="utf-8") as f:
+                _DUNGEONS = json.load(f)
+        except (OSError, ValueError):
+            _DUNGEONS = []
+    return _DUNGEONS
+
+
+def build_dungeon_start(dungeon_id, tier, no_teleport=False, rusher=False):
+    """Action pour lancer un donjon PRECIS (contourne le 'run-current' du serveur
+    qui retombe toujours sur Incarnam en ignorant les favoris)."""
+    return {"panelId": "mod-dungeon", "action": "start",
+            "params": {"modDungeonId": int(dungeon_id), "tierValue": int(tier),
+                       "restartExisting": False, "noTeleport": bool(no_teleport),
+                       "rusherMode": bool(rusher), "soloOverride": False}}
+
+
 def build_fuse(stats, template_id):
     """Construit l'action de craft pour un item : retrouve un guid par
     ingredient dans le sac. Renvoie (payload, erreur)."""
@@ -692,6 +716,25 @@ async def _handle(reader, writer):
                         # pas geler la boucle.
                         res = await asyncio.to_thread(_post_bridge, payload)
                         body = json.dumps(res).encode()
+            except (IndexError, ValueError):
+                pass
+            writer.write(_headers("application/json", len(body)) + body)
+            await writer.drain()
+            return
+
+        if path.startswith("/dungeon/"):
+            parts = path.split("?")[0].strip("/").split("/")
+            body = b'{"ok":true}'
+            try:
+                if parts[1] == "list":
+                    body = json.dumps(dungeons()).encode()
+                elif parts[1] == "start":
+                    did = int(parts[2])
+                    tier = int(parts[3]) if len(parts) > 3 else 0
+                    nt = "noteleport=1" in path.lower()
+                    payload = build_dungeon_start(did, tier, no_teleport=nt)
+                    res = await asyncio.to_thread(_post_bridge, payload)
+                    body = json.dumps(res).encode()
             except (IndexError, ValueError):
                 pass
             writer.write(_headers("application/json", len(body)) + body)

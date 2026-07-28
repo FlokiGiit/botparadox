@@ -36,8 +36,11 @@ h1{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#7d8797;
 .relique{border-left:3px solid #c084fc}.relique .q{color:#c084fc}
 .energie{border-left:3px solid #4a9eff}.energie .q{color:#4a9eff}
 .cat{font-size:9px;color:#7d8797;text-transform:uppercase}
-input{width:100%;padding:8px;border-radius:7px;border:1px solid #333;
+input,select{width:100%;padding:8px;border-radius:7px;border:1px solid #333;
       background:#12141a;color:#e6e8eb;font:inherit;margin-bottom:6px}
+.go{width:100%;padding:9px;border:0;border-radius:7px;cursor:pointer;
+    background:#4a9eff;color:#0d1117;font-weight:700;font-size:13px}
+.go:hover{background:#63adff}
 .res{max-height:180px;overflow-y:auto}
 .res .row{cursor:pointer}.res .row:hover{background:#2a2f3a}
 .tgt{border-left:3px solid #4a9eff}
@@ -53,6 +56,7 @@ input{width:100%;padding:8px;border-radius:7px;border:1px solid #333;
 <div class="tabs">
   <b id="tabLoot" class="on" onclick="show('loot')">Loot</b>
   <b id="tabFus" onclick="show('fus')">Fusion</b>
+  <b id="tabDj" onclick="show('dj')">Donjon</b>
 </div>
 
 <div id="loot">
@@ -74,6 +78,20 @@ input{width:100%;padding:8px;border-radius:7px;border:1px solid #333;
   <div id="detail"></div>
 </div>
 
+<div id="dj" style="display:none">
+  <h1>Lancer un donjon</h1>
+  <select id="dgSel"></select>
+  <div style="display:flex;gap:6px;align-items:center">
+    <select id="dgTier" style="flex:1"></select>
+    <label style="flex:none;display:flex;align-items:center;gap:4px;font-size:11px;
+                  color:#7d8797;margin-bottom:6px;white-space:nowrap">
+      <input type="checkbox" id="dgNT" style="width:auto;margin:0"> sans TP</label>
+  </div>
+  <button class="go" onclick="startDj()">Lancer ce donjon</button>
+  <div id="dgMsg" class="empty"></div>
+  <div class="empty" style="margin-top:4px">Ton choix, pas Incarnam par defaut.</div>
+</div>
+
 <script>
 const label={dofus:"Dofus",relique:"Relique",energie:"Energie"};
 function compact(n){
@@ -83,10 +101,10 @@ function compact(n){
   return String(n);
 }
 function show(t){
-  document.getElementById('loot').style.display=t==='loot'?'':'none';
-  document.getElementById('fus').style.display=t==='fus'?'':'none';
-  document.getElementById('tabLoot').className=t==='loot'?'on':'';
-  document.getElementById('tabFus').className=t==='fus'?'on':'';
+  ['loot','fus','dj'].forEach(function(x){
+    document.getElementById(x).style.display=x===t?'':'none';
+    document.getElementById('tab'+x[0].toUpperCase()+x.slice(1)).className=x===t?'on':'';
+  });
 }
 const img=g=>g?`<img src="/icon/${g}" alt="">`:'<div style="width:26px"></div>';
 // N'ecrit dans un conteneur que si son HTML a change : sinon les <img> se
@@ -173,5 +191,39 @@ async function tick(){
   treeCache=c.tree||[];
   renderTree();
 }
+// ── donjon ──
+async function loadDj(){
+  let list;
+  try{ list=await (await fetch('/dungeon/list')).json(); }catch(e){ return; }
+  const sel=document.getElementById('dgSel');
+  sel.innerHTML=list.map(d=>
+    `<option value="${d.id}" data-min="${d.minTier}" data-max="${d.maxTier}">${d.name}</option>`
+  ).join('');
+  const saved=localStorage.getItem('dg_id'); if(saved) sel.value=saved;
+  fillTiers();
+  sel.onchange=function(){ localStorage.setItem('dg_id',sel.value); fillTiers(); };
+}
+function fillTiers(){
+  const o=document.getElementById('dgSel').selectedOptions[0]; if(!o)return;
+  const min=+o.dataset.min||0, max=+o.dataset.max||5, t=document.getElementById('dgTier');
+  let h=''; for(let i=min;i<=max;i++) h+=`<option value="${i}">Tier ${i}</option>`;
+  t.innerHTML=h;
+  const st=localStorage.getItem('dg_tier'); if(st!==null&&st>=min&&st<=max) t.value=st;
+  t.onchange=function(){ localStorage.setItem('dg_tier',t.value); };
+}
+async function startDj(){
+  const id=document.getElementById('dgSel').value,
+        tier=document.getElementById('dgTier').value,
+        nt=document.getElementById('dgNT').checked?'?noteleport=1':'',
+        msg=document.getElementById('dgMsg');
+  if(!id) return;
+  msg.textContent='lancement...';
+  try{
+    const r=await (await fetch(`/dungeon/start/${id}/${tier}${nt}`)).json();
+    const ok=r.success!==false && (r.data===undefined||r.data.success!==false);
+    msg.textContent=ok?'donjon lance ✓':'echec : '+(r.error||(r.data&&r.data.error)||'refuse par le serveur');
+  }catch(e){ msg.textContent='erreur reseau'; }
+}
+loadDj();
 tick();setInterval(tick,1500);
 </script></body></html>"""
