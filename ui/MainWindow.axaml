@@ -43,6 +43,7 @@
         <Button x:Name="Shutdown" Click="OnShutdown" Content="Arrêter le bot"
                 IsEnabled="False"/>
         <Button x:Name="OpenWeb" Click="OnOpenWeb" Content="Tableau de bord web"/>
+        <Button x:Name="ClientDir" Click="OnClientDir" Content="Dossier du jeu"/>
         <Border Width="1" Background="#262a33" Margin="4,2"/>
         <Button x:Name="TabObserve" Click="OnObserve" Content="Observer"/>
         <Button x:Name="TabHarvest" Click="OnHarvest" Content="Harvest"/>

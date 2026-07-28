@@ -18,7 +18,7 @@ import re
 from client_config import CLIENT_HTML
 
 ORIGIN = "http://127.0.0.1:8765"
-VERSION = 6   # a incrementer si le bloc ci-dessous change
+VERSION = 7   # a incrementer si le bloc ci-dessous change
 
 # L'overlay est un conteneur deplacable (barre du haut) et redimensionnable
 # (poignee en bas a gauche). La geometrie est memorisee dans localStorage, et
@@ -72,6 +72,24 @@ grip.addEventListener('mousedown',function(e){drag(e,'resize');});
 rst.addEventListener('click',function(){try{localStorage.removeItem(K);}catch(e){}apply(def());});
 addEventListener('resize',function(){apply(clamp(geo()));});
 init();
+})();</script>
+<script>(function(){
+  // Panneau donjon du serveur : il selectionne "Donjon d'Incarnam" par defaut
+  // au lieu du premier favori (les favoris sont pourtant en haut de la liste).
+  // A l'ouverture du panneau, on clique le premier item -> ton favori est
+  // selectionne. On utilise leur propre UI, on ne recree rien.
+  var handled=null;
+  new MutationObserver(function(){
+    var panel=document.querySelector('.fp2-panel--mod-dungeon');
+    if(!panel){ handled=null; return; }
+    if(handled===panel) return;
+    var first=panel.querySelector('.feature-panels__dj-list-item')
+              ||panel.querySelector('.fp2__list-item');
+    if(first){
+      handled=panel;
+      if(!first.classList.contains('is-selected')){ try{ first.click(); }catch(e){} }
+    }
+  }).observe(document.body,{childList:true,subtree:true});
 })();</script>
 <!-- LOOT_OVERLAY v__V__ END -->
 """

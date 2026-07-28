@@ -16,6 +16,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 
 namespace ui;
@@ -265,6 +266,42 @@ public partial class MainWindow : Window
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "bot.py")))
             dir = dir.Parent;
         return dir?.FullName ?? ExeDir();
+    }
+
+    // Dossier data lu par le bot (ou vit client_override.txt).
+    static string ClientDataDir()
+    {
+        var exe = BotCoreExe();
+        return exe is not null
+            ? Path.Combine(Path.GetDirectoryName(exe)!, "data")   // installé : botcore\data
+            : Path.Combine(ProjectDir(), "data");                 // dev : projet\data
+    }
+
+    // Re-pointe le client du jeu : utile si le launcher a été déplacé/réinstallé
+    // ailleurs et que la détection automatique ne le retrouve plus.
+    async void OnClientDir(object? sender, RoutedEventArgs e)
+    {
+        var top = TopLevel.GetTopLevel(this);
+        if (top is null) return;
+        var folders = await top.StorageProvider.OpenFolderPickerAsync(
+            new FolderPickerOpenOptions
+            {
+                Title = "Dossier du jeu Nexus (celui qui contient srv_nexus)",
+                AllowMultiple = false,
+            });
+        if (folders.Count == 0) return;
+        var path = folders[0].TryGetLocalPath();
+        if (string.IsNullOrEmpty(path)) return;
+        try
+        {
+            var dir = ClientDataDir();
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, "client_override.txt"), path);
+            Status.Text = "dossier du jeu défini — redémarrage du bot…";
+            await StopBot();
+            StartBot();
+        }
+        catch (Exception ex) { Status.Text = "erreur : " + ex.Message; }
     }
 
     bool _running;
