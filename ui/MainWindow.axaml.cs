@@ -188,29 +188,60 @@ public partial class MainWindow : Window
         catch { /* hors ligne ou release indisponible : on ignore */ }
     }
 
+    static void LogUpdate(string msg)
+    {
+        try
+        {
+            var dir = Path.Combine(InstallDir(), "logs");
+            Directory.CreateDirectory(dir);
+            File.AppendAllText(Path.Combine(dir, "update.log"),
+                $"{DateTime.Now:HH:mm:ss} {msg}{Environment.NewLine}");
+        }
+        catch { }
+    }
+
     async void OnUpdate(object? sender, RoutedEventArgs e)
     {
         if (_setupUrl is null) return;
         UpdateBtn.IsEnabled = false;
         UpdateBtn.Content = "Téléchargement…";
+        // Nom unique : evite un fichier temp verrouille par un essai precedent.
+        var tmp = Path.Combine(Path.GetTempPath(),
+            $"BotParadox-Setup-{DateTime.Now:yyyyMMdd-HHmmss}.exe");
         try
         {
-            var tmp = Path.Combine(Path.GetTempPath(), "BotParadox-Setup.exe");
+            LogUpdate($"telechargement {_setupUrl}");
             using (var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) })
-            using (var s = await http.GetStreamAsync(_setupUrl))
-            using (var f = File.Create(tmp))
+            {
+                http.DefaultRequestHeaders.UserAgent.ParseAdd("BotParadox-Updater");
+                using var resp = await http.GetAsync(
+                    _setupUrl, HttpCompletionOption.ResponseHeadersRead);
+                resp.EnsureSuccessStatusCode();   // 404/403 -> exception claire
+                await using var s = await resp.Content.ReadAsStreamAsync();
+                await using var f = File.Create(tmp);
                 await s.CopyToAsync(f);
+            }
+            var size = new FileInfo(tmp).Length;
+            LogUpdate($"telecharge : {size} octets");
+            // Un vrai Setup fait des dizaines de Mo : trop petit = page d'erreur.
+            if (size < 1_000_000)
+                throw new Exception($"telechargement incomplet ({size} octets)");
+
             // L'installateur ferme les instances en cours, remplace les fichiers,
-            // ré-applique les patchs et relance. On se contente de le lancer et
-            // de quitter pour libérer nos propres fichiers.
+            // ré-applique les patchs et relance. On le lance et on quitte pour
+            // libérer nos propres fichiers.
             Process.Start(new ProcessStartInfo(tmp) { UseShellExecute = true });
+            LogUpdate("installateur lance");
             Close();
         }
         catch (Exception ex)
         {
+            LogUpdate($"ECHEC : {ex.GetType().Name} : {ex.Message}");
             UpdateBtn.Content = "Échec MAJ";
             UpdateBtn.IsEnabled = true;
-            Status.Text = ex.Message;
+            // L'erreur reste visible en infobulle (le rafraichissement du
+            // statut ne l'ecrase pas) et dans logs/update.log.
+            ToolTip.SetTip(UpdateBtn, ex.Message);
         }
     }
 
