@@ -139,10 +139,15 @@ def fill_publish():
 
 
 def main():
+    # Un botcore/BotParadox lance depuis Publish\ verrouille des fichiers et
+    # ferait echouer le nettoyage : on coupe toute instance avant de builder.
+    for exe in ("botcore.exe", "BotParadox.exe"):
+        subprocess.run(["taskkill", "/IM", exe, "/F"],
+                       capture_output=True)
     if os.path.exists(BUILD):
-        shutil.rmtree(BUILD)
+        shutil.rmtree(BUILD, ignore_errors=True)
     if os.path.exists(PUBLISH):
-        shutil.rmtree(PUBLISH)
+        shutil.rmtree(PUBLISH, ignore_errors=True)
     os.makedirs(STAGING)
     freeze_bot()
     publish_ui()
