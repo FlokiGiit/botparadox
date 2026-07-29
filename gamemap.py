@@ -17,7 +17,7 @@ import urllib.request
 import zlib
 
 CHAIN = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
-DATA_URL = "https://data.nexus-temporel.com/dofus/maps/{map_id}_{date}X.swf"
+DATA_URL = "https://data.nexus-temporel.com/dofus/maps/{map_id}_{date}.swf"
 from apppaths import MAPS_DIR as CACHE_DIR
 
 # Grille isométrique standard : 17 rangées de 15 cellules alternant avec
@@ -103,7 +103,7 @@ _MISSING = set()
 def _fetch(map_id, date):
     """Télécharge le SWF de carte, avec cache disque (les cartes sont figées)."""
     os.makedirs(CACHE_DIR, exist_ok=True)
-    path = os.path.join(CACHE_DIR, f"{map_id}_{date}X.swf")
+    path = os.path.join(CACHE_DIR, f"{map_id}_{date}.swf")
     if os.path.exists(path):
         with open(path, "rb") as f:
             return f.read()
@@ -124,9 +124,14 @@ def _fetch(map_id, date):
 
 
 def _extract_data(swf_bytes):
-    """Sort la chaîne hex chiffrée du pool de constantes AS2."""
+    """Sort la chaîne des cellules du SWF.
+
+    Nouveau format (maj serveur 2026-07) : le SWF est compressé zlib (CWS) et la
+    donnée de carte est une chaîne EN CLAIR dans le pool de constantes AS2 —
+    10 caractères CHAIN par cellule, plus de hex ni de chiffrement. C'est de
+    loin la plus longue constante ; les autres font moins de 30 caractères."""
     body = zlib.decompress(swf_bytes[8:]) if swf_bytes[:3] == b"CWS" else swf_bytes[8:]
-    candidates = re.findall(rb"[0-9a-f]{1000,}", body)
+    candidates = re.findall(rb"[A-Za-z0-9_-]{200,}", body)
     if not candidates:
         raise ValueError("données de carte introuvables dans le SWF")
     return max(candidates, key=len).decode("ascii")
@@ -150,10 +155,11 @@ def decrypt(data_hex, key_hex):
 class GameMap:
     """Une carte : praticabilité des cellules et voisinage."""
 
-    def __init__(self, map_id, date, key_hex):
+    def __init__(self, map_id, date, key_hex=""):
         self.map_id = map_id
         self.date = date
-        raw = decrypt(_extract_data(_fetch(map_id, date)), key_hex)
+        # key_hex ignoré : les cartes ne sont plus chiffrées (clé GDM vide).
+        raw = _extract_data(_fetch(map_id, date))
         if len(raw) % 10:
             raise ValueError(f"longueur inattendue : {len(raw)}")
 
