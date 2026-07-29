@@ -192,11 +192,12 @@ async function tick(){
 async function loadHarvest(){
   let d; try{ d=await (await fetch('/harvest/jobs')).json(); }catch(e){ return; }
   const sel=new Set(d.selected||[]);
-  document.getElementById('recList').innerHTML=(d.jobs||[]).map(function(j){
-    return '<label class="row" style="cursor:pointer"><input type="checkbox" '
-      +(sel.has(j)?'checked':'')+' onchange="toggleHarvest(\''+j+'\')" '
-      +'style="width:auto;margin:0 8px 0 0"><span class="n">'+j+'</span></label>';
-  }).join('')||'<div class="empty">aucun metier</div>';
+  document.getElementById('recList').innerHTML=(d.jobs||[]).map(j=>
+    `<label class="row" style="cursor:pointer">`
+    +`<input type="checkbox" ${sel.has(j)?'checked':''} data-j="${j}" `
+    +`onchange="toggleHarvest(this.dataset.j)" style="width:auto;margin:0 8px 0 0">`
+    +`<span class="n">${j}</span></label>`
+  ).join('')||'<div class="empty">aucun metier</div>';
 }
 async function toggleHarvest(j){
   try{ await fetch('/harvest/toggle/'+encodeURIComponent(j)); }catch(e){}
