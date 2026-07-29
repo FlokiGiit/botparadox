@@ -139,7 +139,13 @@ class Brain:
         self.in_fight = False
         self.groups = {}         # cellule -> identifiant du groupe de monstres
         self.target = None       # cellule visée par la récolte en cours
+        self.target_skill = None  # skill de la récolte en cours
         self.failed = {}         # cellule -> instant du dernier refus
+        # Ressources qu'on ne peut PAS récolter (niveau de métier insuffisant,
+        # métier non appris) : le serveur ignore la récolte. Après quelques
+        # refus sur un même skill, on arrête d'essayer ce type-là.
+        self.failed_skills = set()   # skills injouables
+        self.skill_fails = {}        # skill -> nb de refus consécutifs
         self.last_resync = 0.0
         self.last_engage = 0.0
         self.client_in_fight = False   # le client a bascule en vue combat
@@ -360,6 +366,11 @@ class Brain:
                 cell, _, duration = parts[3].partition(",")
                 self.stats.harvest_done(cell)
                 self.failed.pop(int(cell), None)
+                # Cette récolte a abouti : le skill est jouable, on oublie ses
+                # échecs éventuels (utile si le métier vient de monter de niveau).
+                if self.target_skill is not None:
+                    self.skill_fails.pop(self.target_skill, None)
+                    self.failed_skills.discard(self.target_skill)
                 self.busy_since = time.monotonic()
                 self.client_sent_gkk1 = False
                 asyncio.create_task(self._finish_harvest(int(duration) / 1000))
@@ -565,6 +576,15 @@ class Brain:
             # suivante, sans chercher à savoir pourquoi il a refusé.
             if self.target is not None:
                 self.failed[self.target] = time.monotonic()
+                # Refus répété du même skill = ressource au-dessus de mon niveau
+                # (ou métier non appris) : on l'abandonne pour la session.
+                sk = self.target_skill
+                if sk is not None:
+                    self.skill_fails[sk] = self.skill_fails.get(sk, 0) + 1
+                    if self.skill_fails[sk] >= 2 and sk not in self.failed_skills:
+                        self.failed_skills.add(sk)
+                        self.say(f"skill {sk} injouable (niveau/métier) -> "
+                                 f"j'arrête d'essayer ce type")
                 self.say(f"cellule {self.target} sans réponse -> écartée, "
                          f"je passe à une autre")
             self.busy_since = None
@@ -686,6 +706,8 @@ class Brain:
             info = HARVEST_GFX.get(str(gfx)) if gfx else None
             if not info or (sel and info["job"] not in sel):
                 return None
+            if info["skill"] in self.failed_skills:   # niveau/métier insuffisant
+                return None
             return info
 
         available = []
@@ -724,6 +746,7 @@ class Brain:
 
         cell, path, info = best
         self.target = cell
+        self.target_skill = info["skill"]
         self.say(f"{info['action']} {info['name']} en {cell} ({len(path) - 1} pas), "
                  f"pods {self.pods[0]}/{self.pods[1]}")
 
