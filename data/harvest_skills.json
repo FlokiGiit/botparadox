@@ -1,0 +1,292 @@
+{
+"17": {
+"skill": 24,
+"action": "Collecter",
+"job": "Mineur"
+},
+"53": {
+"skill": 25,
+"action": "Collecter",
+"job": "Mineur"
+},
+"55": {
+"skill": 26,
+"action": "Collecter",
+"job": "Mineur"
+},
+"37": {
+"skill": 28,
+"action": "Collecter",
+"job": "Mineur"
+},
+"24": {
+"skill": 29,
+"action": "Collecter",
+"job": "Mineur"
+},
+"25": {
+"skill": 30,
+"action": "Collecter",
+"job": "Mineur"
+},
+"26": {
+"skill": 31,
+"action": "Collecter",
+"job": "Mineur"
+},
+"52": {
+"skill": 55,
+"action": "Collecter",
+"job": "Mineur"
+},
+"54": {
+"skill": 56,
+"action": "Collecter",
+"job": "Mineur"
+},
+"113": {
+"skill": 161,
+"action": "Collecter",
+"job": "Mineur"
+},
+"114": {
+"skill": 162,
+"action": "Collecter",
+"job": "Mineur"
+},
+"1": {
+"skill": 6,
+"action": "Couper",
+"job": "Bûcheron"
+},
+"8": {
+"skill": 10,
+"action": "Couper",
+"job": "Bûcheron"
+},
+"28": {
+"skill": 33,
+"action": "Couper",
+"job": "Bûcheron"
+},
+"29": {
+"skill": 34,
+"action": "Couper",
+"job": "Bûcheron"
+},
+"30": {
+"skill": 35,
+"action": "Couper",
+"job": "Bûcheron"
+},
+"31": {
+"skill": 37,
+"action": "Couper",
+"job": "Bûcheron"
+},
+"32": {
+"skill": 38,
+"action": "Couper",
+"job": "Bûcheron"
+},
+"33": {
+"skill": 39,
+"action": "Couper",
+"job": "Bûcheron"
+},
+"34": {
+"skill": 40,
+"action": "Couper",
+"job": "Bûcheron"
+},
+"35": {
+"skill": 41,
+"action": "Couper",
+"job": "Bûcheron"
+},
+"98": {
+"skill": 139,
+"action": "Couper",
+"job": "Bûcheron"
+},
+"101": {
+"skill": 141,
+"action": "Couper",
+"job": "Bûcheron"
+},
+"108": {
+"skill": 154,
+"action": "Couper",
+"job": "Bûcheron"
+},
+"109": {
+"skill": 155,
+"action": "Couper",
+"job": "Bûcheron"
+},
+"110": {
+"skill": 158,
+"action": "Couper",
+"job": "Bûcheron"
+},
+"121": {
+"skill": 174,
+"action": "Couper",
+"job": "Bûcheron"
+},
+"42": {
+"skill": 50,
+"action": "Faucher",
+"job": "Paysan"
+},
+"46": {
+"skill": 54,
+"action": "Faucher",
+"job": "Paysan"
+},
+"67": {
+"skill": 71,
+"action": "Cueillir",
+"job": "Alchimiste"
+},
+"66": {
+"skill": 72,
+"action": "Cueillir",
+"job": "Alchimiste"
+},
+"68": {
+"skill": 73,
+"action": "Cueillir",
+"job": "Alchimiste"
+},
+"61": {
+"skill": 74,
+"action": "Cueillir",
+"job": "Alchimiste"
+},
+"112": {
+"skill": 160,
+"action": "Cueillir",
+"job": "Alchimiste"
+},
+"50": {
+"skill": 47,
+"action": "Moudre",
+"job": "Paysan"
+},
+"38": {
+"skill": 45,
+"action": "Faucher",
+"job": "Paysan"
+},
+"39": {
+"skill": 46,
+"action": "Faucher",
+"job": "Paysan"
+},
+"44": {
+"skill": 52,
+"action": "Faucher",
+"job": "Paysan"
+},
+"43": {
+"skill": 53,
+"action": "Faucher",
+"job": "Paysan"
+},
+"45": {
+"skill": 57,
+"action": "Faucher",
+"job": "Paysan"
+},
+"47": {
+"skill": 58,
+"action": "Faucher",
+"job": "Paysan"
+},
+"111": {
+"skill": 159,
+"action": "Faucher",
+"job": "Paysan"
+},
+"27": {
+"skill": 32,
+"action": "Fondre",
+"job": "Mineur"
+},
+"75": {
+"skill": 124,
+"action": "Pêcher",
+"job": "Pêcheur"
+},
+"74": {
+"skill": 125,
+"action": "Pêcher",
+"job": "Pêcheur"
+},
+"76": {
+"skill": 126,
+"action": "Pêcher",
+"job": "Pêcheur"
+},
+"79": {
+"skill": 127,
+"action": "Pêcher",
+"job": "Pêcheur"
+},
+"71": {
+"skill": 128,
+"action": "Pêcher",
+"job": "Pêcheur"
+},
+"77": {
+"skill": 129,
+"action": "Pêcher",
+"job": "Pêcheur"
+},
+"78": {
+"skill": 130,
+"action": "Pêcher",
+"job": "Pêcheur"
+},
+"81": {
+"skill": 131,
+"action": "Pêcher",
+"job": "Pêcheur"
+},
+"100": {
+"skill": 136,
+"action": "Pêcher",
+"job": "Pêcheur"
+},
+"99": {
+"skill": 140,
+"action": "Pêcher",
+"job": "Pêcheur"
+},
+"41": {
+"skill": 48,
+"action": "Polir une Pierre",
+"job": "Mineur"
+},
+"95": {
+"skill": 132,
+"action": "Preparer",
+"job": "Chasseur"
+},
+"90": {
+"skill": 23,
+"action": "Préparer une Potion",
+"job": "Alchimiste"
+},
+"2": {
+"skill": 101,
+"action": "Scier",
+"job": "Bûcheron"
+},
+"96": {
+"skill": 133,
+"action": "Vider",
+"job": "Pêcheur"
+}
+}

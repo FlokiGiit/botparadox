@@ -180,8 +180,16 @@ class GameMap:
             raise ValueError(f"longueur inattendue : {len(raw)}")
 
         self.cells = []
+        # gfx de l'objet interactif (ressource) par cellule, quand présent :
+        # couche objet2 = 13 bits (c7<<12 | c8<<6 | c9). Vérifié sur une récolte
+        # réelle (case 432 -> gfx 7500 = Frêne) et recoupé sur toute la carte
+        # (Frêne/Châtaignier/Noyer/Trèfle/Menthe = ce qu'il y a sur la map).
+        self.node_gfx = {}
         for i in range(0, len(raw), 10):
             c = [CHAIN.index(ch) for ch in raw[i:i + 10]]
+            gfx = ((c[7] << 12) | (c[8] << 6) | c[9]) & 0x1FFF
+            if gfx:
+                self.node_gfx[i // 10] = gfx
             self.cells.append({
                 "active": bool(c[0] & 0x20),
                 "los": bool(c[0] & 0x01),

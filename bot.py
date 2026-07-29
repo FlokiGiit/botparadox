@@ -48,8 +48,25 @@ AUTO_COMBAT = True
 # client bascule bien en vue de combat : deux choses differentes.
 DELAY_BEFORE_READY = 2.0
 
-# Outil de récolte. 45 = faucille (blé) — relevé dans `GA500402;45`.
+# Outil de récolte. 45 = faucille (blé). Historique : le bot ne fauchait que le
+# blé. Désormais il lit le bon skill par nœud (voir HARVEST_GFX) et ne garde 45
+# qu'en dernier recours.
 SKILL_ID = 45
+
+
+def _load_harvest_gfx():
+    """gfx d'un objet interactif -> {skill, job, action, name}. Permet de savoir
+    quel outil utiliser sur chaque nœud (Faucher, Couper, Miner, Cueillir...)."""
+    import json
+    from apppaths import data as _data
+    try:
+        with open(_data("harvest_gfx.json"), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+HARVEST_GFX = _load_harvest_gfx()
 
 # Pause après une action du joueur, réarmée à chaque geste : le bot reprend
 # donc ce délai après le dernier clic, pas après le premier.
@@ -658,13 +675,29 @@ class Brain:
             return
 
         now = time.monotonic()
-        available = [c for c, state in self.resources.items()
-                     if state == 1
-                     and now - self.failed.get(c, 0) > FAILED_COOLDOWN]
+        # Métiers cochés dans l'overlay (vide = tous). Chaque nœud est identifié
+        # par le gfx décodé de la carte -> HARVEST_GFX donne son skill et son
+        # métier ; on ne garde que les ressources des métiers sélectionnés.
+        sel = self.stats.harvest_jobs
+        node_gfx = getattr(self.gmap, "node_gfx", {}) if self.gmap else {}
+
+        def skill_of(cell):
+            gfx = node_gfx.get(cell)
+            info = HARVEST_GFX.get(str(gfx)) if gfx else None
+            if not info or (sel and info["job"] not in sel):
+                return None
+            return info
+
+        available = []
+        for c, state in self.resources.items():
+            if state != 1 or now - self.failed.get(c, 0) <= FAILED_COOLDOWN:
+                continue
+            info = skill_of(c)
+            if info is not None:
+                available.append((c, info))
 
         # Plus rien de jouable alors que la carte annonce des ressources :
-        # notre vision est périmée. On redemande le contenu de la carte, ce
-        # que le client fait lui-même après chaque chargement.
+        # notre vision est périmée. On redemande le contenu de la carte.
         if not available and self.resources and now - self.last_resync > RESYNC_INTERVAL:
             self.last_resync = now
             self.say("plus rien de récoltable -> je redemande la carte")
@@ -672,28 +705,26 @@ class Brain:
             return
 
         if not available:
-            # Ne surtout pas rester muet : un bot silencieux est indiscernable
-            # d'un bot planté, et on finit par reprendre la main pour rien.
             if self.last_blocked != "vide":
-                self.say(f"champ vidé ({len(self.resources)} ressources, "
-                         f"aucune disponible) — attente des repops")
+                self.say(f"rien à récolter ({len(self.resources)} nœuds, hors "
+                         "sélection ou vides) — attente des repops")
                 self.last_blocked = "vide"
             return
         self.last_blocked = None
 
         best = None
-        for cell in available:
+        for cell, info in available:
             path = self.gmap.find_path(self.pos, cell)
             if path and (best is None or len(path) < len(best[1])):
-                best = (cell, path)
+                best = (cell, path, info)
 
         if best is None:
             self.say(f"{len(available)} ressources, aucune accessible")
             return
 
-        cell, path = best
+        cell, path, info = best
         self.target = cell
-        self.say(f"récolte cellule {cell} ({len(path) - 1} pas), "
+        self.say(f"{info['action']} {info['name']} en {cell} ({len(path) - 1} pas), "
                  f"pods {self.pods[0]}/{self.pods[1]}")
 
         # Marqué occupé dès l'envoi, pas à la confirmation : le serveur met
@@ -703,7 +734,7 @@ class Brain:
 
         if len(path) > 1:
             self.s.to_server("GA001" + compress_path(path))
-        self.s.to_server(f"GA500{cell};{SKILL_ID}")
+        self.s.to_server(f"GA500{cell};{info['skill']}")
 
 
 async def main():

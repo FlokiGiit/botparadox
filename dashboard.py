@@ -97,6 +97,21 @@ def _save_overlay_geo(geo):
         pass
 
 
+_HARVEST_JOBS = None
+
+
+def harvest_jobs_list():
+    """Métiers de récolte disponibles (dérivés de harvest_gfx.json)."""
+    global _HARVEST_JOBS
+    if _HARVEST_JOBS is None:
+        try:
+            with open(_data("harvest_gfx.json"), encoding="utf-8") as f:
+                _HARVEST_JOBS = sorted({v["job"] for v in json.load(f).values()})
+        except (OSError, ValueError):
+            _HARVEST_JOBS = []
+    return _HARVEST_JOBS
+
+
 def build_fuse(stats, template_id):
     """Construit l'action de craft pour un item : retrouve un guid par
     ingredient dans le sac. Renvoie (payload, erreur)."""
@@ -163,6 +178,7 @@ class Stats:
         self.jobs = {}           # numéro de métier -> (niveau, plancher, xp, suivant)
         # Avant _restore : sinon la restauration des cibles serait ecrasee.
         self.craft_targets = {}   # templateId -> quantite voulue
+        self.harvest_jobs = set()  # metiers a recolter (vide = tous)
         self._restore()
         self.xp_start = None     # XP au premier paquet, pour mesurer le gain
         self.kills = 0
@@ -199,6 +215,7 @@ class Stats:
             self.total.update(saved.get("total", {}))
             self.craft_targets = {int(k): v
                                   for k, v in saved.get("craft", {}).items()}
+            self.harvest_jobs = set(saved.get("harvest_jobs", []))
         except (OSError, ValueError):
             pass
 
@@ -216,7 +233,8 @@ class Stats:
             with open(STATE_FILE, "w", encoding="utf-8") as f:
                 json.dump({"mode": self.mode, "total": total,
                            "craft": {str(k): v
-                                     for k, v in self.craft_targets.items()}}, f)
+                                     for k, v in self.craft_targets.items()},
+                           "harvest_jobs": sorted(self.harvest_jobs)}, f)
         except OSError:
             pass
 
@@ -737,6 +755,29 @@ async def _handle(reader, writer):
                         # pas geler la boucle.
                         res = await asyncio.to_thread(_post_bridge, payload)
                         body = json.dumps(res).encode()
+            except (IndexError, ValueError):
+                pass
+            writer.write(_headers("application/json", len(body)) + body)
+            await writer.drain()
+            return
+
+        if path.startswith("/harvest/"):
+            import urllib.parse as up
+            parts = path.split("?")[0].strip("/").split("/")
+            body = b'{"ok":true}'
+            try:
+                if parts[1] == "jobs":
+                    body = json.dumps({
+                        "jobs": harvest_jobs_list(),
+                        "selected": sorted(_stats.harvest_jobs),
+                    }).encode()
+                elif parts[1] == "toggle":
+                    job = up.unquote(parts[2])
+                    if job in _stats.harvest_jobs:
+                        _stats.harvest_jobs.discard(job)
+                    else:
+                        _stats.harvest_jobs.add(job)
+                    _stats.persist()
             except (IndexError, ValueError):
                 pass
             writer.write(_headers("application/json", len(body)) + body)

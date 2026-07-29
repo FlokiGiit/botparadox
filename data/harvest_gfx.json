@@ -1,0 +1,350 @@
+{
+"7500": {
+"skill": 6,
+"job": "Bûcheron",
+"action": "Couper",
+"name": "Frêne"
+},
+"7003": {
+"skill": 101,
+"job": "Bûcheron",
+"action": "Scier",
+"name": "Scie"
+},
+"7503": {
+"skill": 10,
+"job": "Bûcheron",
+"action": "Couper",
+"name": "Chêne"
+},
+"7520": {
+"skill": 24,
+"job": "Mineur",
+"action": "Collecter",
+"name": "Fer"
+},
+"7526": {
+"skill": 29,
+"job": "Mineur",
+"action": "Collecter",
+"name": "Argent"
+},
+"7527": {
+"skill": 30,
+"job": "Mineur",
+"action": "Collecter",
+"name": "Or"
+},
+"7528": {
+"skill": 31,
+"job": "Mineur",
+"action": "Collecter",
+"name": "Pierre de Bauxite"
+},
+"7002": {
+"skill": 32,
+"job": "Mineur",
+"action": "Fondre",
+"name": "Moule"
+},
+"7505": {
+"skill": 33,
+"job": "Bûcheron",
+"action": "Couper",
+"name": "If"
+},
+"7507": {
+"skill": 34,
+"job": "Bûcheron",
+"action": "Couper",
+"name": "Ebène"
+},
+"7509": {
+"skill": 35,
+"job": "Bûcheron",
+"action": "Couper",
+"name": "Orme"
+},
+"7504": {
+"skill": 37,
+"job": "Bûcheron",
+"action": "Couper",
+"name": "Erable"
+},
+"7508": {
+"skill": 38,
+"job": "Bûcheron",
+"action": "Couper",
+"name": "Charme"
+},
+"7501": {
+"skill": 39,
+"job": "Bûcheron",
+"action": "Couper",
+"name": "Châtaignier"
+},
+"7502": {
+"skill": 40,
+"job": "Bûcheron",
+"action": "Couper",
+"name": "Noyer"
+},
+"7506": {
+"skill": 41,
+"job": "Bûcheron",
+"action": "Couper",
+"name": "Merisier"
+},
+"7525": {
+"skill": 28,
+"job": "Mineur",
+"action": "Collecter",
+"name": "Pierre de Kobalte"
+},
+"7511": {
+"skill": 45,
+"job": "Paysan",
+"action": "Faucher",
+"name": "Blé"
+},
+"7512": {
+"skill": 46,
+"job": "Paysan",
+"action": "Faucher",
+"name": "Houblon"
+},
+"7005": {
+"skill": 48,
+"job": "Mineur",
+"action": "Polir une Pierre",
+"name": "Meule"
+},
+"7513": {
+"skill": 50,
+"job": "Paysan",
+"action": "Faucher",
+"name": "Lin"
+},
+"7515": {
+"skill": 53,
+"job": "Paysan",
+"action": "Faucher",
+"name": "Orge"
+},
+"7516": {
+"skill": 52,
+"job": "Paysan",
+"action": "Faucher",
+"name": "Seigle"
+},
+"7517": {
+"skill": 57,
+"job": "Paysan",
+"action": "Faucher",
+"name": "Avoine"
+},
+"7514": {
+"skill": 54,
+"job": "Paysan",
+"action": "Faucher",
+"name": "Chanvre"
+},
+"7518": {
+"skill": 58,
+"job": "Paysan",
+"action": "Faucher",
+"name": "Malt"
+},
+"7007": {
+"skill": 47,
+"job": "Paysan",
+"action": "Moudre",
+"name": "Concasseur"
+},
+"7521": {
+"skill": 55,
+"job": "Mineur",
+"action": "Collecter",
+"name": "Etain"
+},
+"7522": {
+"skill": 25,
+"job": "Mineur",
+"action": "Collecter",
+"name": "Pierre Cuivrée"
+},
+"7524": {
+"skill": 56,
+"job": "Mineur",
+"action": "Collecter",
+"name": "Manganèse"
+},
+"7523": {
+"skill": 26,
+"job": "Mineur",
+"action": "Collecter",
+"name": "Bronze"
+},
+"7536": {
+"skill": 74,
+"job": "Alchimiste",
+"action": "Cueillir",
+"name": "Edelweiss"
+},
+"7534": {
+"skill": 72,
+"job": "Alchimiste",
+"action": "Cueillir",
+"name": "Menthe Sauvage"
+},
+"7533": {
+"skill": 71,
+"job": "Alchimiste",
+"action": "Cueillir",
+"name": "Trèfle à 5 feuilles"
+},
+"7535": {
+"skill": 73,
+"job": "Alchimiste",
+"action": "Cueillir",
+"name": "Orchidée Freyesque"
+},
+"7530": {
+"skill": 128,
+"job": "Pêcheur",
+"action": "Pêcher",
+"name": "Petits poissons (mer)"
+},
+"7532": {
+"skill": 125,
+"job": "Pêcheur",
+"action": "Pêcher",
+"name": "Poissons (rivière)"
+},
+"7529": {
+"skill": 124,
+"job": "Pêcheur",
+"action": "Pêcher",
+"name": "Petits poissons (rivière)"
+},
+"7537": {
+"skill": 126,
+"job": "Pêcheur",
+"action": "Pêcher",
+"name": "Gros poissons (rivière)"
+},
+"7531": {
+"skill": 129,
+"job": "Pêcheur",
+"action": "Pêcher",
+"name": "Poissons (mer)"
+},
+"7538": {
+"skill": 130,
+"job": "Pêcheur",
+"action": "Pêcher",
+"name": "Gros poissons (mer)"
+},
+"7539": {
+"skill": 127,
+"job": "Pêcheur",
+"action": "Pêcher",
+"name": "Poissons géants (rivière)"
+},
+"7540": {
+"skill": 131,
+"job": "Pêcheur",
+"action": "Pêcher",
+"name": "Poissons géants (mer)"
+},
+"7019": {
+"skill": 23,
+"job": "Alchimiste",
+"action": "Préparer une Potion",
+"name": "Alambic"
+},
+"7025": {
+"skill": 132,
+"job": "Chasseur",
+"action": "Preparer",
+"name": "Plan de travail"
+},
+"7024": {
+"skill": 133,
+"job": "Pêcheur",
+"action": "Vider",
+"name": "Plan de Travail"
+},
+"7541": {
+"skill": 139,
+"job": "Bûcheron",
+"action": "Couper",
+"name": "Bombu"
+},
+"7543": {
+"skill": 140,
+"job": "Pêcheur",
+"action": "Pêcher",
+"name": "Ombre étrange"
+},
+"7544": {
+"skill": 136,
+"job": "Pêcheur",
+"action": "Pêcher",
+"name": "Pichon"
+},
+"7542": {
+"skill": 141,
+"job": "Bûcheron",
+"action": "Couper",
+"name": "Oliviolet"
+},
+"7553": {
+"skill": 154,
+"job": "Bûcheron",
+"action": "Couper",
+"name": "Bambou"
+},
+"7554": {
+"skill": 155,
+"job": "Bûcheron",
+"action": "Couper",
+"name": "Bambou sombre"
+},
+"7552": {
+"skill": 158,
+"job": "Bûcheron",
+"action": "Couper",
+"name": "Bambou sacré"
+},
+"7550": {
+"skill": 159,
+"job": "Paysan",
+"action": "Faucher",
+"name": "Riz"
+},
+"7551": {
+"skill": 160,
+"job": "Alchimiste",
+"action": "Cueillir",
+"name": "Pandouille"
+},
+"7555": {
+"skill": 161,
+"job": "Mineur",
+"action": "Collecter",
+"name": "Dolomite"
+},
+"7556": {
+"skill": 162,
+"job": "Mineur",
+"action": "Collecter",
+"name": "Silicate"
+},
+"7557": {
+"skill": 174,
+"job": "Bûcheron",
+"action": "Couper",
+"name": "Kaliptus"
+}
+}

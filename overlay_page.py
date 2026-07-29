@@ -59,6 +59,7 @@ input,select{width:100%;padding:8px;border-radius:7px;border:1px solid #333;
 <div class="tabs">
   <b id="tabLoot" class="on" onclick="show('loot')">Loot</b>
   <b id="tabFus" onclick="show('fus')">Fusion</b>
+  <b id="tabRec" onclick="show('rec')">Récolte</b>
 </div>
 
 <div id="loot">
@@ -80,6 +81,13 @@ input,select{width:100%;padding:8px;border-radius:7px;border:1px solid #333;
   <div id="detail"></div>
 </div>
 
+<div id="rec" style="display:none">
+  <h1>Métiers à récolter</h1>
+  <div id="recList"></div>
+  <div class="empty" style="margin-top:6px">Coché = le bot récolte ce métier
+    (avec le bon outil). Rien coché = tous.</div>
+</div>
+
 <script>
 const label={dofus:"Dofus",relique:"Relique",energie:"Energie"};
 function compact(n){
@@ -89,7 +97,7 @@ function compact(n){
   return String(n);
 }
 function show(t){
-  ['loot','fus'].forEach(function(x){
+  ['loot','fus','rec'].forEach(function(x){
     document.getElementById(x).style.display=x===t?'':'none';
     document.getElementById('tab'+x[0].toUpperCase()+x.slice(1)).className=x===t?'on':'';
   });
@@ -180,5 +188,19 @@ async function tick(){
   treeCache=c.tree||[];
   renderTree();
 }
+// ── recolte : selection des metiers ──
+async function loadHarvest(){
+  let d; try{ d=await (await fetch('/harvest/jobs')).json(); }catch(e){ return; }
+  const sel=new Set(d.selected||[]);
+  document.getElementById('recList').innerHTML=(d.jobs||[]).map(function(j){
+    return '<label class="row" style="cursor:pointer"><input type="checkbox" '
+      +(sel.has(j)?'checked':'')+' onchange="toggleHarvest(\''+j+'\')" '
+      +'style="width:auto;margin:0 8px 0 0"><span class="n">'+j+'</span></label>';
+  }).join('')||'<div class="empty">aucun metier</div>';
+}
+async function toggleHarvest(j){
+  try{ await fetch('/harvest/toggle/'+encodeURIComponent(j)); }catch(e){}
+}
+loadHarvest();
 tick();setInterval(tick,1500);
 </script></body></html>"""
