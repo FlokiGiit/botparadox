@@ -602,7 +602,24 @@ class Brain:
 
         best = None
         for cell in targets:
-            path = self.gmap.find_path(self.pos, cell)
+            if self.gmap.walkable(cell):
+                # Mob sur case marchable (extérieur) : on marche dessus, ce qui
+                # déclenche le combat.
+                path = self.gmap.find_path(self.pos, cell)
+            else:
+                # Mob sur case NON marchable (boss de donjon, décor) : on ne peut
+                # pas s'y rendre. On rejoint la case marchable adjacente la plus
+                # proche, puis on ajoute la case du mob comme pas d'attaque final
+                # — le serveur ouvre alors le combat, comme le vrai client.
+                path = None
+                for _, nb in self.gmap.neighbours(cell):
+                    if not self.gmap.walkable(nb):
+                        continue
+                    p = self.gmap.find_path(self.pos, nb)
+                    if p and (path is None or len(p) < len(path)):
+                        path = p
+                if path is not None:
+                    path = path + [cell]
             # Un chemin sans déplacement veut dire qu'on est déjà sur la case :
             # le groupe n'y est plus, aucun combat ne se déclenchera.
             if path and len(path) > 1 and (best is None or len(path) < len(best[1])):
