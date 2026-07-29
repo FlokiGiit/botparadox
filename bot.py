@@ -736,7 +736,21 @@ class Brain:
 
         best = None
         for cell, info in available:
-            path = self.gmap.find_path(self.pos, cell)
+            if self.gmap.walkable(cell):
+                # Ressource sur case marchable (blé...) : on se rend dessus.
+                path = self.gmap.find_path(self.pos, cell)
+            else:
+                # Ressource sur case NON marchable (arbre, minerai) : le tronc/
+                # rocher bloque la case. On rejoint la case marchable adjacente
+                # la plus proche et on récolte de là (GA500 vise quand même la
+                # cellule de la ressource).
+                path = None
+                for _, nb in self.gmap.neighbours(cell):
+                    if not self.gmap.walkable(nb):
+                        continue
+                    p = self.gmap.find_path(self.pos, nb)
+                    if p and (path is None or len(p) < len(path)):
+                        path = p
             if path and (best is None or len(path) < len(best[1])):
                 best = (cell, path, info)
 
