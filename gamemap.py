@@ -17,7 +17,7 @@ import urllib.request
 import zlib
 
 CHAIN = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
-DATA_URL = "https://data.nexus-temporel.com/dofus/maps/{map_id}_{date}.swf"
+DATA_URL = "https://data.nexus-temporel.com/dofus/maps/{map_id}_{date}{suffix}.swf"
 from apppaths import MAPS_DIR as CACHE_DIR
 
 # Grille isométrique standard : 17 rangées de 15 cellules alternant avec
@@ -100,17 +100,20 @@ def compress_path(cells):
 _MISSING = set()
 
 
-def _fetch(map_id, date):
-    """Télécharge le SWF de carte, avec cache disque (les cartes sont figées)."""
+def _fetch(map_id, date, suffix=""):
+    """Télécharge le SWF de carte, avec cache disque (les cartes sont figées).
+
+    Le suffixe distingue les deux formats servis : "X" pour les cartes
+    classiques (hex chiffré), "" pour les cartes du nouveau format (en clair)."""
     os.makedirs(CACHE_DIR, exist_ok=True)
-    path = os.path.join(CACHE_DIR, f"{map_id}_{date}.swf")
+    path = os.path.join(CACHE_DIR, f"{map_id}_{date}{suffix}.swf")
     if os.path.exists(path):
         with open(path, "rb") as f:
             return f.read()
 
     if map_id in _MISSING:
         raise FileNotFoundError(f"carte {map_id} absente du serveur")
-    url = DATA_URL.format(map_id=map_id, date=date)
+    url = DATA_URL.format(map_id=map_id, date=date, suffix=suffix)
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     try:
         raw = urllib.request.urlopen(req, timeout=20).read()
@@ -123,15 +126,23 @@ def _fetch(map_id, date):
     return raw
 
 
-def _extract_data(swf_bytes):
-    """Sort la chaîne des cellules du SWF.
+def _body(swf_bytes):
+    """Corps du SWF, décompressé si zlib (CWS)."""
+    return zlib.decompress(swf_bytes[8:]) if swf_bytes[:3] == b"CWS" else swf_bytes[8:]
 
-    Nouveau format (maj serveur 2026-07) : le SWF est compressé zlib (CWS) et la
-    donnée de carte est une chaîne EN CLAIR dans le pool de constantes AS2 —
-    10 caractères CHAIN par cellule, plus de hex ni de chiffrement. C'est de
-    loin la plus longue constante ; les autres font moins de 30 caractères."""
-    body = zlib.decompress(swf_bytes[8:]) if swf_bytes[:3] == b"CWS" else swf_bytes[8:]
-    candidates = re.findall(rb"[A-Za-z0-9_-]{200,}", body)
+
+def _extract_hex(swf_bytes):
+    """Ancien format : longue chaîne hex chiffrée dans le pool AS2."""
+    candidates = re.findall(rb"[0-9a-f]{1000,}", _body(swf_bytes))
+    if not candidates:
+        raise ValueError("données de carte (hex) introuvables dans le SWF")
+    return max(candidates, key=len).decode("ascii")
+
+
+def _extract_plain(swf_bytes):
+    """Nouveau format (maj serveur 2026-07) : cellules EN CLAIR dans le pool
+    AS2, 10 caractères CHAIN par cellule, plus de hex ni de chiffrement."""
+    candidates = re.findall(rb"[A-Za-z0-9_-]{200,}", _body(swf_bytes))
     if not candidates:
         raise ValueError("données de carte introuvables dans le SWF")
     return max(candidates, key=len).decode("ascii")
@@ -158,8 +169,13 @@ class GameMap:
     def __init__(self, map_id, date, key_hex=""):
         self.map_id = map_id
         self.date = date
-        # key_hex ignoré : les cartes ne sont plus chiffrées (clé GDM vide).
-        raw = _extract_data(_fetch(map_id, date))
+        # Deux formats coexistent, distingués par la présence d'une clé dans le
+        # GDM : clé => carte classique (URL avec X, hex chiffré) ; pas de clé =>
+        # nouveau format (URL sans X, cellules en clair).
+        if key_hex:
+            raw = decrypt(_extract_hex(_fetch(map_id, date, "X")), key_hex)
+        else:
+            raw = _extract_plain(_fetch(map_id, date, ""))
         if len(raw) % 10:
             raise ValueError(f"longueur inattendue : {len(raw)}")
 
