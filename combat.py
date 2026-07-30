@@ -85,6 +85,11 @@ SELF_BUFFS = []
 # Séquence fixe tour par tour, reconstituée depuis une capture réelle du combat
 # (placement toujours identique confirmé par le joueur). Un tour = une liste
 # d'actions ; une action est soit ("move", chemin_encodé) soit (id_sort, case).
+# Case du boss, aussi bien pour l'engagement (position sur la carte, vue dans
+# GM) que pour les sorts en combat. Toujours la même (confirmé joueur) : on
+# vise donc cette case précise pour engager, en ignorant percepteur et mobs
+# alentour qui pourraient être plus proches.
+KRALAMOURE_BOSS_CELL = 509
 # Cases figées : boss = 509, Cawotte = 635 (T1) puis 636 (repositionnement).
 # Sorts (id catalogue) :
 #   367   Cawotte (invocation)

@@ -23,7 +23,7 @@ import client_patch
 import dashboard
 import gamedata
 import proxy
-from combat import CombatAI, KRALAMOURE_SCRIPT
+from combat import CombatAI, KRALAMOURE_SCRIPT, KRALAMOURE_BOSS_CELL
 from gamemap import GameMap, compress_path
 
 # Mettre à False pour observer les combats sans que le bot y touche.
@@ -335,6 +335,11 @@ class Brain:
             self.target = None
             self.pos = None
             self.failed.clear()
+            # La carte a changé : les groupes de l'ancienne n'existent plus ici.
+            # Sans ce nettoyage, une case de groupe périmée (ex. 509 sur une
+            # autre carte) restait ciblable. Le GM de la nouvelle carte, qui
+            # suit aussitôt, reconstruit la liste.
+            self.groups.clear()
             # Filet de sécurité : recevoir une carte veut dire qu'on est bien
             # hors combat. Sans ça, un GE manqué figerait le bot définitivement.
             self.in_fight = False
@@ -602,11 +607,14 @@ class Brain:
             return f"pods pleins ({cur}/{mx})"
         return False
 
-    def _farm(self):
-        """Engage le groupe de monstres le plus proche.
+    def _farm(self, only_cell=None):
+        """Engage un groupe de monstres.
 
         Il n'y a rien à décoder de plus : on marche sur leur cellule et le
         serveur déclenche le combat, exactement comme quand le joueur clique.
+
+        `only_cell` (mode Kralamoure) : on ne vise QUE cette case (celle du
+        boss). Sinon on prend le groupe le plus proche.
         """
         now = time.monotonic()
         # Double verrou volontaire. Le combat commence quelques centaines de
@@ -634,10 +642,15 @@ class Brain:
             self.engaging_since = None
         targets = [c for c in self.groups
                    if now - self.failed.get(c, 0) > FAILED_COOLDOWN]
+        if only_cell is not None:
+            # Kralamoure : uniquement la case du boss, quoi qu'il y ait d'autre
+            # (percepteur, mobs plus proches) sur la carte.
+            targets = [c for c in targets if c == only_cell]
         if not targets:
             if self.last_blocked != "vide":
+                extra = f" — je cible {only_cell}" if only_cell is not None else ""
                 self.say(f"aucun groupe accessible ({len(self.groups)} sur la carte)"
-                         " — j'attends un repop")
+                         f"{extra} — j'attends un repop")
                 self.last_blocked = "vide-farm"
             return
         self.last_blocked = None
@@ -695,10 +708,13 @@ class Brain:
             return
         self.last_blocked = None
 
-        # En Kralamoure comme en farm, hors combat on va au contact des mobs
-        # pour (re)lancer le combat ; le script fixe prend le relais une fois
-        # le combat engagé.
-        if self.stats.mode in ("farm", "kralamoure"):
+        # Hors combat on va au contact des mobs pour (re)lancer le combat ; le
+        # script fixe prend le relais une fois le combat engagé. En Kralamoure
+        # on ne vise que la case du boss (ignore percepteur et mobs alentour).
+        if self.stats.mode == "kralamoure":
+            self._farm(only_cell=KRALAMOURE_BOSS_CELL)
+            return
+        if self.stats.mode == "farm":
             self._farm()
             return
 
