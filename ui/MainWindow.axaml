@@ -36,25 +36,35 @@
 
   <DockPanel Margin="16">
 
-    <!-- barre de contrôle -->
+    <!-- barre de contrôle : deux rangées (actions / modes) qui s'enroulent
+         automatiquement plutôt que de déborder hors de la fenêtre -->
     <Border DockPanel.Dock="Top" Classes="card" Margin="0,0,0,12">
-      <StackPanel Orientation="Horizontal" Spacing="12">
-        <Button x:Name="UpdateBtn" Click="OnUpdate" Content="⬆ Mettre à jour"
-                IsVisible="False" Background="#3fb950" Foreground="#0d1117"
-                FontWeight="Bold" FontSize="14"/>
-        <Button x:Name="StartStop" Click="OnStartStop" Content="Démarrer"/>
-        <Button x:Name="Shutdown" Click="OnShutdown" Content="Arrêter le bot"
-                IsEnabled="False"/>
-        <Button x:Name="OpenWeb" Click="OnOpenWeb" Content="Tableau de bord web"/>
-        <Button x:Name="ClientDir" Click="OnClientDir" Content="Dossier du jeu"/>
-        <Border Width="1" Background="#262a33" Margin="4,2"/>
-        <Button x:Name="TabObserve" Click="OnObserve" Content="Observer"/>
-        <Button x:Name="TabHarvest" Click="OnHarvest" Content="Harvest"/>
-        <Button x:Name="TabFarm" Click="OnFarm" Content="Farming"/>
-        <Ellipse x:Name="Dot" Width="10" Height="10" Fill="#e05561"
-                 VerticalAlignment="Center"/>
-        <TextBlock x:Name="Status" Classes="sub" VerticalAlignment="Center"
-                   Text="arrêté"/>
+      <StackPanel Orientation="Vertical" Spacing="10">
+        <!-- actions -->
+        <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
+          <Button x:Name="UpdateBtn" Click="OnUpdate" Content="⬆ Mettre à jour"
+                  IsVisible="False" Background="#3fb950" Foreground="#0d1117"
+                  FontWeight="Bold"/>
+          <Button x:Name="StartStop" Click="OnStartStop" Content="Démarrer"/>
+          <Button x:Name="Shutdown" Click="OnShutdown" Content="Arrêter le bot"
+                  IsEnabled="False"/>
+          <Button x:Name="OpenWeb" Click="OnOpenWeb" Content="Tableau de bord web"/>
+          <Button x:Name="ClientDir" Click="OnClientDir" Content="Dossier du jeu"/>
+        </WrapPanel>
+        <!-- modes + état -->
+        <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
+          <TextBlock Text="MODE" Classes="k" VerticalAlignment="Center"
+                     Margin="0,0,4,0"/>
+          <Button x:Name="TabObserve" Click="OnObserve" Content="Observer"/>
+          <Button x:Name="TabHarvest" Click="OnHarvest" Content="Harvest"/>
+          <Button x:Name="TabFarm" Click="OnFarm" Content="Farming"/>
+          <Button x:Name="TabKral" Click="OnKralamoure" Content="Kralamoure"/>
+          <Border Width="1" Background="#262a33" Margin="6,2"/>
+          <Ellipse x:Name="Dot" Width="10" Height="10" Fill="#e05561"
+                   VerticalAlignment="Center"/>
+          <TextBlock x:Name="Status" Classes="sub" VerticalAlignment="Center"
+                     Text="arrêté"/>
+        </WrapPanel>
       </StackPanel>
     </Border>
 

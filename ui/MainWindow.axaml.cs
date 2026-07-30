@@ -343,6 +343,7 @@ public partial class MainWindow : Window
     async void OnObserve(object? sender, RoutedEventArgs e) => await SetMode("off");
     async void OnHarvest(object? sender, RoutedEventArgs e) => await SetMode("harvest");
     async void OnFarm(object? sender, RoutedEventArgs e) => await SetMode("farm");
+    async void OnKralamoure(object? sender, RoutedEventArgs e) => await SetMode("kralamoure");
 
     async Task SetMode(string mode)
     {
@@ -467,21 +468,24 @@ public partial class MainWindow : Window
         Shutdown.IsEnabled = true;
 
         var mode = root.GetProperty("mode").GetString() ?? "harvest";
-        var farming = mode == "farm";
-        CardKills.IsVisible = farming;
-        CardXp.IsVisible = farming;
-        CardHarvests.IsVisible = !farming;
-        CardPods.IsVisible = !farming;
-        // Les metiers ne progressent pas en combat : hors sujet en farm.
-        JobsTitle.IsVisible = !farming;
-        Jobs.IsVisible = !farming;
+        // Kralamoure est un mode de combat : mêmes cartes que le farm.
+        var combat = mode == "farm" || mode == "kralamoure";
+        CardKills.IsVisible = combat;
+        CardXp.IsVisible = combat;
+        CardHarvests.IsVisible = !combat;
+        CardPods.IsVisible = !combat;
+        // Les metiers ne progressent pas en combat : hors sujet en farm/krala.
+        JobsTitle.IsVisible = !combat;
+        Jobs.IsVisible = !combat;
         var off = mode == "off";
         TabObserve.Background = new SolidColorBrush(Color.Parse(
             off ? "#4a9eff" : "#2a2f3a"));
         TabHarvest.Background = new SolidColorBrush(Color.Parse(
             mode == "harvest" ? "#4a9eff" : "#2a2f3a"));
         TabFarm.Background = new SolidColorBrush(Color.Parse(
-            farming ? "#4a9eff" : "#2a2f3a"));
+            mode == "farm" ? "#4a9eff" : "#2a2f3a"));
+        TabKral.Background = new SolidColorBrush(Color.Parse(
+            mode == "kralamoure" ? "#4a9eff" : "#2a2f3a"));
 
         Kills.Text = root.GetProperty("kills").GetInt32().ToString("N0");
         KillsRate.Text = $"{root.GetProperty("kills_per_hour").GetDouble():0} / heure";
