@@ -33,9 +33,13 @@ ST_CATEGORY = 19
 
 # Délais : assez courts pour ne pas perdre de temps, assez présents pour ne pas
 # répondre en zéro milliseconde là où un humain met au moins le temps du clic.
-DELAY_BEFORE_TURN = 0.35
-DELAY_BETWEEN_CASTS = 0.45
-DELAY_BEFORE_END_TURN = 0.15
+DELAY_BEFORE_TURN = 0.2
+DELAY_BETWEEN_CASTS = 0.3
+DELAY_BEFORE_END_TURN = 0.1
+# Attente après un déplacement de combat avant d'enchaîner un sort : le temps
+# que le serveur enregistre la nouvelle position. Assez court pour rester
+# rapide, assez long pour qu'un sort dépendant de la case d'arrivée passe.
+DELAY_AFTER_MOVE = 0.9
 
 # Un tour ne doit jamais durer indéfiniment : au pire on passe.
 TURN_DEADLINE = 20.0
@@ -87,11 +91,12 @@ SELF_BUFFS = []
 #   46371 Flamiche (eau)   350 Flamiche (feu)
 #   46373 Flamiche (terre) 46372 Flamiche (air)
 #   179   Flèche Explosive
-# Le déplacement T1 "hkX" est le chemin capturé (rejouable tel quel car le
-# placement de départ est constant). Ne lance que des sorts possédés : un GA300
-# d'un sort absent du catalogue est simplement ignoré par le serveur.
+# Le déplacement T1 ("move_tr") est calculé au moment du combat : on va le plus
+# loin possible vers le haut-droite, dans la limite des PM réels et sur cases
+# libres — jamais une case en dur (qui pouvait être injoignable). Ne lance que
+# des sorts possédés : un GA300 d'un sort absent du catalogue est ignoré serveur.
 KRALAMOURE_SCRIPT = [
-    [("move", "hkX"), (367, 635), (46371, 509)],   # T1
+    [("move_tr",), (367, 635), (46371, 509)],      # T1
     [(350, 509)],                                   # T2 Flamiche feu
     [(46373, 509)],                                 # T3 Flamiche terre
     [],                                             # T4 passe
@@ -494,18 +499,71 @@ class CombatAI:
         for act in actions:
             if not self.active:
                 break
-            if act[0] == "move":
-                self.say(f"script: déplacement {act[1]}")
-                self.s.to_server("GA001" + act[1])
-                # Un déplacement de combat s'anime : on laisse l'arrivée se
-                # faire avant d'enchaîner un sort qui dépend de la position.
-                await asyncio.sleep(2.0)
+            if act[0] == "move_tr":
+                await self._move_topright()
             else:
                 spell_id, cell = act
                 self.say(f"script: sort {spell_id} sur {cell}")
                 self.s.to_server(f"GA300{spell_id};{cell}")
                 await asyncio.sleep(DELAY_BETWEEN_CASTS)
         self.script_step += 1
+
+    def _reachable(self, start, pm, blocked):
+        """Cellules praticables atteignables en au plus `pm` pas, avec le
+        parent de chacune (pour reconstruire le chemin). BFS sur les vraies
+        cases marchables de la carte, en évitant les cases occupées."""
+        came = {start: None}
+        dist = {start: 0}
+        queue = [start]
+        i = 0
+        while i < len(queue):
+            cur = queue[i]
+            i += 1
+            if dist[cur] >= pm:
+                continue
+            for _, nb in self.gmap.neighbours(cur):
+                if nb in came or nb in blocked or not self.gmap.walkable(nb):
+                    continue
+                came[nb] = cur
+                dist[nb] = dist[cur] + 1
+                queue.append(nb)
+        return came
+
+    async def _move_topright(self):
+        """Va le plus loin possible vers le haut-droite (NE), sans dépasser les
+        PM et en restant sur des cases libres. Remplace un déplacement figé :
+        c'est calculé depuis la position réelle, donc jamais injoignable.
+
+        Sûr : on n'envoie qu'un GA001 vers une case réellement atteignable par
+        un chemin marchable — exactement ce qu'un clic du vrai client produit."""
+        from gamemap import compress_path
+        me = self.fighters.get(self.char_id)
+        if me is None or self.gmap is None or me.pm <= 0:
+            return
+        blocked = {f.cell for f in self.fighters.values() if f.cell != me.cell}
+        came = self._reachable(me.cell, me.pm, blocked)
+        # "Haut-droite" = colonne maximale, rangée minimale : score x - y.
+        def score(cell):
+            x, y = self.gmap.coords(cell)
+            return x - y
+        best = max(came, key=score)
+        if best == me.cell:
+            self.say("script: déjà au plus haut-droite atteignable")
+            return
+        # Reconstruit le chemin case par case, puis l'encode au format serveur.
+        path = []
+        cur = best
+        while cur is not None:
+            path.append(cur)
+            cur = came[cur]
+        path.reverse()
+        encoded = compress_path(path)
+        if not encoded:
+            return
+        self.say(f"script: déplacement haut-droite -> {best} "
+                 f"({len(path) - 1} pas, {me.pm} PM)")
+        self.s.to_server("GA001" + encoded)
+        await asyncio.sleep(DELAY_AFTER_MOVE)
 
     def reset(self, active=False):
         self.fighters.clear()
