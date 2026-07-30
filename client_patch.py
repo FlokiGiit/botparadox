@@ -18,7 +18,7 @@ import re
 from client_config import CLIENT_HTML
 
 ORIGIN = "http://127.0.0.1:8765"
-VERSION = 8   # a incrementer si le bloc ci-dessous change
+VERSION = 9   # a incrementer si le bloc ci-dessous change
 
 # L'overlay est un conteneur deplacable (barre du haut) et redimensionnable
 # (poignee en bas a gauche). La geometrie est memorisee dans localStorage, et
@@ -98,6 +98,87 @@ init();
       if(!first.classList.contains('is-selected')){ try{ first.click(); }catch(e){} }
     }
   }).observe(document.body,{childList:true,subtree:true});
+})();</script>
+<script>(function(){
+  // Pano evo : le panneau "APPLIQUER UNE ESSENCE" n'applique qu'UNE essence par
+  // clic. On ajoute a cote de LEUR bouton un champ nombre + "Appliquer xN" qui
+  // reselectionne l'essence choisie et reclique LEUR bouton N fois, avec une
+  // pause entre chaque pour laisser le serveur repondre. On s'arrete si
+  // l'essence est epuisee (l'option disparait) ou si leur bouton se desactive.
+  // On ne recree rien : on pilote leur propre UI, exactement comme N clics.
+  var TAG='botEssBatch', pending=false, running=false;
+  function findBtn(){
+    return [].slice.call(document.querySelectorAll('button')).find(function(b){
+      return /appliquer l.essence/i.test((b.textContent||''));
+    });
+  }
+  function findSelect(){
+    return [].slice.call(document.querySelectorAll('select')).find(function(s){
+      return s.options&&s.options.length&&/choisir une essence/i.test(s.options[0].text||'');
+    });
+  }
+  function reselect(sel,val){
+    try{
+      var d=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value');
+      if(d&&d.set){d.set.call(sel,val);}else{sel.value=val;}
+      sel.dispatchEvent(new Event('input',{bubbles:true}));
+      sel.dispatchEvent(new Event('change',{bubbles:true}));
+    }catch(e){try{sel.value=val;}catch(_){}}
+  }
+  function inject(){
+    var btn=findBtn(), sel=findSelect();
+    if(!btn||!sel) return;
+    var host=btn.parentElement; if(!host) return;
+    if(host.querySelector('#'+TAG)) return;   // deja injecte
+    var wrap=document.createElement('div');
+    wrap.id=TAG;
+    wrap.style.cssText='display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap';
+    var num=document.createElement('input');
+    num.type='number';num.min='1';num.value='10';num.title='Nombre d\\'applications';
+    num.style.cssText='width:66px;padding:6px;border-radius:6px;border:1px solid #6a5a3a;background:rgba(0,0,0,.25);color:#f0e6d2;font:inherit';
+    var go=document.createElement('button');
+    go.type='button';go.textContent='Appliquer \\u00d7N';
+    go.style.cssText='padding:6px 12px;border:0;border-radius:6px;cursor:pointer;background:#c9a24b;color:#241a08;font-weight:700;font:inherit';
+    var stat=document.createElement('span');
+    stat.style.cssText='font:600 12px system-ui,sans-serif;color:#bda87e;margin-left:2px';
+    // Quand on choisit une essence, pre-remplit le nombre avec le stock (xN).
+    sel.addEventListener('change',function(){
+      var o=sel.options[sel.selectedIndex];
+      var m=(o?o.text:'').match(/[x\\u00d7]\\s*(\\d+)/i);
+      if(m){num.value=m[1];}
+    });
+    go.addEventListener('click',function(){
+      if(running) return;
+      var n=parseInt(num.value,10)||0;
+      var s=findSelect();
+      if(!s||s.selectedIndex<=0){stat.textContent='choisis une essence';return;}
+      if(n<1){stat.textContent='nombre invalide';return;}
+      var val=s.value, done=0;
+      running=true; go.disabled=true;
+      function finish(msg){running=false;go.disabled=false;if(stat.isConnected)stat.textContent=msg;}
+      function step(){
+        if(done>=n) return finish('termine \\u2014 '+done+' appliqu\\u00e9e(s)');
+        var sel2=findSelect(), btn2=findBtn();
+        if(!sel2||!btn2) return finish('panneau ferm\\u00e9 \\u2014 '+done);
+        var has=[].slice.call(sel2.options).some(function(o){return o.value===val;});
+        if(!has) return finish('essence \\u00e9puis\\u00e9e \\u2014 '+done);
+        if(sel2.value!==val||sel2.selectedIndex<=0) reselect(sel2,val);
+        setTimeout(function(){
+          var b=findBtn();
+          if(!b||b.disabled) return finish('bouton indispo \\u2014 '+done);
+          try{b.click();}catch(e){return finish('erreur \\u2014 '+done);}
+          done++; if(stat.isConnected) stat.textContent=done+'/'+n;
+          setTimeout(step,700);
+        },140);
+      }
+      step();
+    });
+    wrap.appendChild(num);wrap.appendChild(go);wrap.appendChild(stat);
+    host.appendChild(wrap);
+  }
+  function schedule(){if(pending)return;pending=true;setTimeout(function(){pending=false;inject();},400);}
+  new MutationObserver(schedule).observe(document.body,{childList:true,subtree:true});
+  inject();
 })();</script>
 <!-- LOOT_OVERLAY v__V__ END -->
 """
