@@ -23,7 +23,7 @@ import client_patch
 import dashboard
 import gamedata
 import proxy
-from combat import CombatAI
+from combat import CombatAI, KRALAMOURE_SCRIPT
 from gamemap import GameMap, compress_path
 
 # Mettre à False pour observer les combats sans que le bot y touche.
@@ -236,6 +236,11 @@ class Brain:
             self.combat_manual = False
             self.client_in_fight = False
             self.combat.reset(active=True)
+            # Mode Kralamoure : on arme le script de combat fixe ; sinon IA
+            # générique. On (re)fixe à chaque combat pour suivre le mode courant.
+            self.combat.script = (
+                KRALAMOURE_SCRIPT
+                if self.stats.mode == "kralamoure" else None)
             self.stats.fight_start()
             self.say("combat détecté -> récolte en veille")
             # Mode observateur : on regarde le combat sans y toucher — donc pas
@@ -513,7 +518,7 @@ class Brain:
         # En farm, ce paquet est le signal qu'on attendait apres un combat :
         # position retrouvee et groupes a jour. Attendre le battement de 2 s
         # ajoutait un temps mort visible entre chaque bagarre.
-        if fresh and self.stats.mode == "farm" and not self.in_fight:
+        if fresh and self.stats.mode in ("farm", "kralamoure") and not self.in_fight:
             self._maybe_act()
 
     def close(self):
@@ -690,7 +695,10 @@ class Brain:
             return
         self.last_blocked = None
 
-        if self.stats.mode == "farm":
+        # En Kralamoure comme en farm, hors combat on va au contact des mobs
+        # pour (re)lancer le combat ; le script fixe prend le relais une fois
+        # le combat engagé.
+        if self.stats.mode in ("farm", "kralamoure"):
             self._farm()
             return
 

@@ -77,6 +77,32 @@ EXCLUSIVE_SPELLS = []
 # remplacent — c'est surtout utile si les combats durent.
 SELF_BUFFS = []
 
+# ── Script de combat Kralamoure Géant ────────────────────────────────────────
+# Séquence fixe tour par tour, reconstituée depuis une capture réelle du combat
+# (placement toujours identique confirmé par le joueur). Un tour = une liste
+# d'actions ; une action est soit ("move", chemin_encodé) soit (id_sort, case).
+# Cases figées : boss = 509, Cawotte = 635 (T1) puis 636 (repositionnement).
+# Sorts (id catalogue) :
+#   367   Cawotte (invocation)
+#   46371 Flamiche (eau)   350 Flamiche (feu)
+#   46373 Flamiche (terre) 46372 Flamiche (air)
+#   179   Flèche Explosive
+# Le déplacement T1 "hkX" est le chemin capturé (rejouable tel quel car le
+# placement de départ est constant). Ne lance que des sorts possédés : un GA300
+# d'un sort absent du catalogue est simplement ignoré par le serveur.
+KRALAMOURE_SCRIPT = [
+    [("move", "hkX"), (367, 635), (46371, 509)],   # T1
+    [(350, 509)],                                   # T2 Flamiche feu
+    [(46373, 509)],                                 # T3 Flamiche terre
+    [],                                             # T4 passe
+    [],                                             # T5 passe
+    [],                                             # T6 passe
+    [(46372, 509)],                                 # T7 Flamiche air
+    [(367, 636)],                                   # T8 Cawotte repositionnée
+    [],                                             # T9 passe
+    [(179, 509)],                                   # T10 Flèche Explosive
+]
+
 # Le serveur n'envoie le catalogue (ST) qu'occasionnellement — une session
 # entiere peut n'en recevoir aucun. Sans lui l'IA n'a aucun sort a lancer et
 # passe tous ses tours. On le conserve donc sur disque : il ne change qu'a
@@ -145,6 +171,10 @@ class CombatAI:
         self.playing = False
         self.active = False    # un combat est réellement en cours
         self.gmap = None       # carte courante, pour le calcul de zone
+        # Script de combat fixe (ex. Kralamoure Géant) : une liste d'actions par
+        # tour. Si défini, il remplace l'IA générique. None = IA normale.
+        self.script = None
+        self.script_step = 0
         self._load_catalog()
 
     # ── lecture du flux ──────────────────────────────────────────────────────
@@ -396,6 +426,11 @@ class CombatAI:
 
         try:
             await asyncio.sleep(DELAY_BEFORE_TURN)
+            # Script fixe (ex. Kralamoure) : on rejoue la séquence tour par tour
+            # et on saute l'IA générique.
+            if self.script is not None:
+                await self._play_script()
+                return
             # Buffs sur soi d'abord : ils ne visent personne d'autre, donc
             # pas de sondage necessaire, la case est la notre.
             for spell_id in SELF_BUFFS:
@@ -443,9 +478,41 @@ class CombatAI:
                 self.s.to_server("Gt")
             self.playing = False
 
+    async def _play_script(self):
+        """Rejoue un script de combat fixe (cases figées) : un tour = une liste
+        d'actions. Une action est soit ("move", chemin_encodé) soit
+        (id_sort, cellule). On avance d'un cran par tour ; le Gt final est
+        envoyé par le bloc `finally` de _play_turn.
+
+        Sûr par construction : on ne lance que des sorts du catalogue (le
+        serveur ignore un GA300 d'un sort non possédé) et on ne rejoue qu'un
+        déplacement réellement capturé — rien qu'un vrai client ne produirait."""
+        step = self.script_step
+        actions = self.script[step] if step < len(self.script) else []
+        self.say(f"script Kralamoure — tour {step + 1}/{len(self.script)} "
+                 f"({len(actions)} action(s))")
+        for act in actions:
+            if not self.active:
+                break
+            if act[0] == "move":
+                self.say(f"script: déplacement {act[1]}")
+                self.s.to_server("GA001" + act[1])
+                # Un déplacement de combat s'anime : on laisse l'arrivée se
+                # faire avant d'enchaîner un sort qui dépend de la position.
+                await asyncio.sleep(2.0)
+            else:
+                spell_id, cell = act
+                self.say(f"script: sort {spell_id} sur {cell}")
+                self.s.to_server(f"GA300{spell_id};{cell}")
+                await asyncio.sleep(DELAY_BETWEEN_CASTS)
+        self.script_step += 1
+
     def reset(self, active=False):
         self.fighters.clear()
         self.probes.clear()
         self.casts.clear()
         self.playing = False
         self.active = active
+        # Le script de combat persiste (c'est un réglage de mode) mais son
+        # compteur de tour repart à zéro à chaque nouveau combat.
+        self.script_step = 0
