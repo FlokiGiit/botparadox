@@ -115,6 +115,37 @@ COMBAT_IDLE = 4.0
 # Démarrage de récolte, toutes variantes : GA0;501;... comme GA1;501;...
 HARVEST_START = re.compile(r"^GA\d+;501;")
 
+# Jeton de prestige : modèle 925405. Il ne passe pas par OA/OQ comme le loot
+# ordinaire — il n'apparaît que dans le bilan de fin de combat (GE), qu'on
+# parse pour le compter.
+PRESTIGE_ID = "925405"
+# Liste de butin d'un bloc GE : uniquement des "modele~quantite" décimaux,
+# ce qui écarte les champs d'apparence (skins) qui contiennent aussi un "~".
+_LOOT_LIST = re.compile(r"^\d+~\d+(,\d+~\d+)*$")
+
+
+def _prestige_from_ge(msg, char_id):
+    """Nombre de jetons de prestige gagnés PAR LE JOUEUR dans ce bilan GE.
+
+    Le GE liste chaque combattant (séparés par '|') avec, quelque part dans son
+    bloc, sa liste de butin. On ne compte que le bloc dont l'id == char_id."""
+    if not char_id:
+        return 0
+    for block in msg.split("|"):
+        fields = block.split(";")
+        if len(fields) < 3 or fields[1] != char_id:
+            continue
+        total = 0
+        for f in fields:
+            if "~" not in f or not _LOOT_LIST.match(f):
+                continue
+            for pair in f.split(","):
+                model, _, qty = pair.partition("~")
+                if model == PRESTIGE_ID and qty.isdigit():
+                    total += int(qty)
+        return total
+    return 0
+
 # Marge avant saturation des pods : en dessous, on arrête de récolter.
 PODS_STOP_RATIO = 0.95
 
@@ -252,6 +283,8 @@ class Brain:
             self.in_fight = False
             self.combat.reset()
             self.stats.fight_end()
+            # Jetons de prestige gagnés ce combat (loot présent seulement ici).
+            self.stats.add_prestige(_prestige_from_ge(msg, self.char_id))
             # Le combat déplace le personnage, et sa position réelle n'arrive
             # qu'au GM suivant, quelques centaines de millisecondes plus tard.
             # Repartir tout de suite revenait à calculer un chemin depuis la

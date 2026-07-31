@@ -25,6 +25,7 @@ body{font:13px system-ui,sans-serif;color:#e6e8eb;padding:8px;background:transpa
 .stat.xp{border-top-color:#7dd3a0}.stat.xp .val{color:#7dd3a0}
 .stat.kam{border-top-color:#ffd166}.stat.kam .val{color:#ffd166}
 .stat.lvl{border-top-color:#c084fc}.stat.lvl .val{color:#c084fc}
+.stat.jet{border-top-color:#e0a458}.stat.jet .val{color:#e0a458}
 h1{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#7d8797;
    margin:12px 0 8px;text-shadow:0 1px 3px #000}
 .row{display:flex;align-items:center;gap:8px;padding:6px 8px;margin-bottom:5px;
@@ -67,6 +68,7 @@ input,select{width:100%;padding:8px;border-radius:7px;border:1px solid #333;
     <div class="stat xp"><div class="ic">&#10022;</div><div class="val" id="sxp">0</div><div class="lbl">XP</div></div>
     <div class="stat kam"><div class="ic">&#9673;</div><div class="val" id="skam">0</div><div class="lbl">Kamas</div></div>
     <div class="stat lvl"><div class="ic">&#9650;</div><div class="val" id="slvl">0</div><div class="lbl">Niveaux</div></div>
+    <div class="stat jet"><div class="ic">&#129689;</div><div class="val" id="sjet">0</div><div class="lbl">Jetons</div></div>
   </div>
   <h1>Loot rare</h1>
   <div id="rareList"></div>
@@ -171,6 +173,7 @@ async function tick(){
   document.getElementById("sxp").textContent=compact(d.session_xp||0);
   document.getElementById("skam").textContent=compact(d.session_kamas||0);
   document.getElementById("slvl").textContent="+"+(d.session_levels||0);
+  document.getElementById("sjet").textContent="+"+compact(d.prestige||0);
   // loot rare
   const rare=d.rare||[];
   paint("rareList", rare.length ? rare.map(i=>

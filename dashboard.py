@@ -156,7 +156,11 @@ class Stats:
         # loot est compte pour l'overlay). "harvest"/"farm" jouent.
         self.mode = "off"
         self.total = {"harvests": 0, "kills": 0, "fights": 0,
-                      "xp": 0, "kamas": 0}
+                      "xp": 0, "kamas": 0, "prestige": 0}
+        # Jetons de prestige gagnes cette session. Ils n'arrivent pas en OA/OQ
+        # comme le loot ordinaire : ils ne figurent que dans le bilan de combat
+        # (GE), qu'on parse pour les compter.
+        self.prestige = 0
         # Le jeu n'est pas forcément connecté : le bot peut tourner en
         # attendant, ce qui est même l'ordre à respecter.
         self.client_connected = False
@@ -230,6 +234,7 @@ class Stats:
             total["fights"] = self.total["fights"] + self.fights
             total["xp"] = self.total["xp"] + self._xp_gained()
             total["kamas"] = self.total["kamas"] + self._kamas_gained()
+            total["prestige"] = self.total.get("prestige", 0) + self.prestige
             with open(STATE_FILE, "w", encoding="utf-8") as f:
                 json.dump({"mode": self.mode, "total": total,
                            "craft": {str(k): v
@@ -245,6 +250,14 @@ class Stats:
         # l'affichage.
         self.events.appendleft({"t": time.time(), "kind": kind,
                                 "text": text, **extra})
+
+    def add_prestige(self, n):
+        """Comptabilise n jetons de prestige gagnes (depuis le bilan de combat)."""
+        if n <= 0:
+            return
+        self.prestige += n
+        self.event("drop", f"+{n} Jeton de prestige", gfx="")
+        self.persist()
 
     def craft_add(self, tid):
         self.craft_targets[tid] = self.craft_targets.get(tid, 0) + 1
@@ -506,6 +519,8 @@ class Stats:
             "session_levels": self.session_levels,
             "session_xp": self._xp_gained(),
             "session_kamas": self._kamas_gained(),
+            "prestige": self.prestige,
+            "total_prestige": self.total.get("prestige", 0) + self.prestige,
             "xp": self._xp_progress(),
             "jobs": self._job_rows(gd),
             "events": [self._render_event(e, gd) for e in self.events],
