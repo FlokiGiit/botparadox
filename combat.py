@@ -708,9 +708,12 @@ class CombatAI:
         le serveur ne fige pas le mouvement (le client injecté envoie un GKK0
         qui ne le valide pas) et le perso reste sur place — d'où l'Araknée
         poussée dans le vide. Même schéma que la récolte (qui, elle, marche)."""
+        # GKK1 ENVOYÉ IMMÉDIATEMENT après le GA001 : le client injecté renvoie un
+        # GKK0 d'annulation ~25 ms après (le proxy le relaie aussitôt), donc il
+        # faut que notre GKK1 arrive AVANT. Un délai même court laissait le GKK0
+        # gagner la course et le perso restait sur place (1 réussite sur 9).
         self.s.to_server("GA001" + encoded)
-        await asyncio.sleep(0.35)          # laisse le serveur accorder (GA0)
-        self.s.to_server("GKK1")           # confirme l'arrivée -> move figé
+        self.s.to_server("GKK1")
         await asyncio.sleep(DELAY_AFTER_MOVE)
 
     def _reachable(self, start, pm, blocked):
