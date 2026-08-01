@@ -49,6 +49,14 @@ PROBE_TIMEOUT = 2.0
 # on ne pourra jamais spammer les lancers.
 MAX_CASTS_PER_TURN = 6
 
+# Déplacement en combat : DÉSACTIVÉ. Les GA001 injectés sont accordés par le
+# serveur (GA0;1) mais jamais finalisés par le vrai client qui tourne en
+# parallèle (son handshake GAF/GKK ne valide pas un move qu'il n'a pas lancé) —
+# le perso ne bouge donc pas. Tant que ce n'est pas résolu, on n'essaie plus de
+# le déplacer (sinon Araknée mal posée, esquives ratées, actions gâchées). Le
+# combat se limite au burst, qui fonctionne. Repasser à True pour ré-essayer.
+COMBAT_MOVE_ENABLED = False
+
 # Nombre de cases de zone sondees par tour (les meilleures d'abord) avant
 # d'abandonner la zone pour du mono-cible. Assez pour trouver une case a
 # portee quand la toute meilleure ne l'est pas, sans multiplier les allers-
@@ -644,15 +652,15 @@ class CombatAI:
             # invulnérable, il ne prend rien). Quand il ne reste QUE le boss, on
             # fait la manœuvre : Araknée au càc du boss puis Recul dessus. Ça
             # évite de pousser l'Araknée dans un autre mob.
-            if (self.obsi and self.obsi_boss_seen and me is not None
-                    and not self._obsi_trash_alive()):
+            if (COMBAT_MOVE_ENABLED and self.obsi and self.obsi_boss_seen
+                    and me is not None and not self._obsi_trash_alive()):
                 if await self._obsi_manoeuvre(me):
                     return
             # Rapprochement : si Flèche Explosive n'a aucune cible à portée, on
             # se rapproche (combat normal uniquement — les boss obsi/korri ont
             # leur propre gestion de déplacement, on ne s'en mêle pas).
-            if (my_cell is not None and not self.obsi_boss_seen
-                    and not self.korri_present):
+            if (COMBAT_MOVE_ENABLED and my_cell is not None
+                    and not self.obsi_boss_seen and not self.korri_present):
                 await self._approach_for_prefer(me)
             # Buffs sur soi d'abord : ils ne visent personne d'autre, donc
             # pas de sondage necessaire, la case est la notre.
@@ -696,7 +704,7 @@ class CombatAI:
             await asyncio.sleep(DELAY_BEFORE_END_TURN)
             # Korriandre : bouger hors de la glyphe AVANT de passer, sinon on
             # meurt en finissant le tour dessus.
-            if self.active and self.korri_present:
+            if COMBAT_MOVE_ENABLED and self.active and self.korri_present:
                 try:
                     await self._dodge_glyph(me)
                 except Exception as e:
