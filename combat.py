@@ -39,7 +39,7 @@ DELAY_BEFORE_END_TURN = 0.1
 # Attente après un déplacement de combat avant d'enchaîner un sort : le temps
 # que le serveur enregistre la nouvelle position. Assez court pour rester
 # rapide, assez long pour qu'un sort dépendant de la case d'arrivée passe.
-DELAY_AFTER_MOVE = 0.9
+DELAY_AFTER_MOVE = 1.1
 
 # Un tour ne doit jamais durer indéfiniment : au pire on passe.
 TURN_DEADLINE = 20.0
@@ -760,16 +760,22 @@ class CombatAI:
         le serveur ne fige pas le mouvement (le client injecté envoie un GKK0
         qui ne le valide pas) et le perso reste sur place — d'où l'Araknée
         poussée dans le vide. Même schéma que la récolte (qui, elle, marche)."""
-        # Le client renvoie un GKK0 qui confirme SA position (donc annule notre
-        # déplacement injecté). On demande au proxy de bloquer les GKK du client
-        # le temps du mouvement, puis on envoie GA001 + notre propre GKK1.
+        # Séquence correcte d'un déplacement de combat :
+        #  1) bloquer les GKK du client (son GKK0 confirmerait sa propre
+        #     position et annulerait le mouvement),
+        #  2) envoyer GA001 (le serveur démarre le déplacement),
+        #  3) ATTENDRE que le déplacement s'effectue — surtout PAS de GKK1 tout
+        #     de suite : un GKK1 immédiat dit "déplacement fini" avant que le
+        #     perso ait bougé, le serveur clôt l'action à 0 case (GAF0),
+        #  4) confirmer par GKK1 une fois arrivé.
         try:
-            self.s.suppress_client_gkk(DELAY_AFTER_MOVE + 0.6)
+            self.s.suppress_client_gkk(DELAY_AFTER_MOVE + 0.8)
         except AttributeError:
-            pass   # ancienne session sans suppression -> best effort
+            pass
         self.s.to_server("GA001" + encoded)
-        self.s.to_server("GKK1")
-        await asyncio.sleep(DELAY_AFTER_MOVE)
+        await asyncio.sleep(DELAY_AFTER_MOVE)   # le déplacement s'effectue
+        self.s.to_server("GKK1")                # confirme APRÈS l'arrivée
+        await asyncio.sleep(0.15)
 
     def _reachable(self, start, pm, blocked):
         """Cellules praticables atteignables en au plus `pm` pas, avec le
