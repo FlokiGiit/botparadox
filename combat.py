@@ -427,6 +427,22 @@ class CombatAI:
         return any(f.pvmax >= BOSS_HP_MIN for f in self.fighters.values()
                    if f.is_monster and f.hp > 0)
 
+    def _obsi_trash_alive(self):
+        """Reste-t-il des mobs à tuer en dehors du boss et des Pougnettes ?
+        On garde l'Obsidiantre pour la fin : tant qu'il reste du trash, on
+        burste (le boss invulnérable ne prend rien de toute façon), et on ne
+        tente la manœuvre Araknée que quand il ne reste plus que le boss —
+        sinon on risquait de pousser l'Araknée dans un autre mob."""
+        for f in self.fighters.values():
+            if not f.is_monster or f.hp <= 0:
+                continue
+            if f.pvmax >= BOSS_HP_MIN:      # le boss lui-même
+                continue
+            if f.pvmax == POUGNETTE_HP:     # Pougnette : on ne la tue pas
+                continue
+            return True
+        return False
+
     async def _probe(self, cell, spell_id):
         """Demande au serveur le degat prevu (ZDM) sur cette cellule pour ce
         sort ; None si la cible est refusee. Le degat renvoye tient deja compte
@@ -606,12 +622,13 @@ class CombatAI:
             if self.script is not None:
                 await self._play_script()
                 return
-            # Mode Obsidiantre : UNIQUEMENT quand le vrai Obsidiantre est dans
-            # le combat (annoncé par cMK). Dans les salles trash on ne fait rien
-            # de spécial -> l'IA générique ci-dessous les nettoie normalement.
-            # Si le boss est invulnérable, on tente la manœuvre (invoquer
-            # l'Araknée à mi-chemin, la pousser dans le boss) ; sinon on burste.
-            if self.obsi and self.obsi_boss_seen and me is not None:
+            # Mode Obsidiantre : on garde le boss pour la fin. Tant qu'il reste
+            # du trash, on laisse l'IA générique le nettoyer (le boss est
+            # invulnérable, il ne prend rien). Quand il ne reste QUE le boss, on
+            # fait la manœuvre : Araknée au càc du boss puis Recul dessus. Ça
+            # évite de pousser l'Araknée dans un autre mob.
+            if (self.obsi and self.obsi_boss_seen and me is not None
+                    and not self._obsi_trash_alive()):
                 if await self._obsi_manoeuvre(me):
                     return
             # Buffs sur soi d'abord : ils ne visent personne d'autre, donc
