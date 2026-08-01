@@ -555,8 +555,7 @@ class CombatAI:
                     continue
                 self.say(f"obsi: placement en {c} ({len(path) - 1} pas) "
                          f"pour pousser l'Araknée dans le boss {boss.cell}")
-                self.s.to_server("GA001" + enc)
-                await asyncio.sleep(DELAY_AFTER_MOVE)
+                await self._combat_move(enc)
             if not self.active:
                 return True
             self.say(f"obsi: invocation Araknée ({ARAKNE_SUMMON_SPELL}) sur {m}")
@@ -687,6 +686,16 @@ class CombatAI:
                 await asyncio.sleep(DELAY_BETWEEN_CASTS)
         self.script_step += 1
 
+    async def _combat_move(self, encoded):
+        """Déplacement en combat : GA001 PUIS confirmation GKK1. Sans ce GKK1,
+        le serveur ne fige pas le mouvement (le client injecté envoie un GKK0
+        qui ne le valide pas) et le perso reste sur place — d'où l'Araknée
+        poussée dans le vide. Même schéma que la récolte (qui, elle, marche)."""
+        self.s.to_server("GA001" + encoded)
+        await asyncio.sleep(0.35)          # laisse le serveur accorder (GA0)
+        self.s.to_server("GKK1")           # confirme l'arrivée -> move figé
+        await asyncio.sleep(DELAY_AFTER_MOVE)
+
     def _reachable(self, start, pm, blocked):
         """Cellules praticables atteignables en au plus `pm` pas, avec le
         parent de chacune (pour reconstruire le chemin). BFS sur les vraies
@@ -741,8 +750,7 @@ class CombatAI:
             return
         self.say(f"script: déplacement haut-droite -> {best} "
                  f"({len(path) - 1} pas, {me.pm} PM)")
-        self.s.to_server("GA001" + encoded)
-        await asyncio.sleep(DELAY_AFTER_MOVE)
+        await self._combat_move(encoded)
 
     def reset(self, active=False):
         self.fighters.clear()
