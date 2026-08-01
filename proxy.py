@@ -96,7 +96,24 @@ class Tee:
 
 
 class Session:
-    """Poignée donnée au brain pour émettre des paquets."""
+    """Poignée donnée au brain pour émettre des paquets.
+
+    Les paquets du bot sont injectés sur la MÊME connexion que le vrai client.
+    Le serveur (PacketSecurityGuard) compte comme "strike" tout paquet trop
+    rapproché (< 40 ms), tout doublon (> 2 identiques/s) et tout dépassement de
+    débit (~10/s global) ; au 4e strike il déconnecte, et son compteur ne
+    redescend jamais → déconnexion garantie au bout d'un moment. On cadence donc
+    la sortie du bot via une file : espacement mini entre paquets, et jamais
+    plus de 2 paquets identiques par seconde glissante. Rien n'est jeté, tout
+    est simplement lissé. Les paquets du client, eux, ne passent pas par ici."""
+
+    # Espacement mini entre deux paquets DU BOT (~6,5/s max) : bien au-dessus de
+    # la fenêtre replay serveur (40 ms) et sous la limite de débit global (10/s),
+    # en laissant de la marge au vrai client sur la connexion partagée.
+    MIN_GAP = 0.15
+    # Fenêtre "même paquet" du serveur : on garde au plus 2 identiques par seconde.
+    SAME_WINDOW = 1.0
+    SAME_MAX = 2
 
     def __init__(self, client_writer, server_writer, log):
         self.client_writer = client_writer
@@ -105,6 +122,51 @@ class Session:
         # Fenêtre pendant laquelle on bloque les GKK du client (ils annulent
         # nos déplacements de combat injectés). Voir should_drop_client.
         self._gkk_suppress_until = 0.0
+        # File d'émission du bot + horodatage par paquet (anti-doublon serveur).
+        self._queue = asyncio.Queue()
+        self._payload_times = {}
+        self._sender_task = None
+
+    def start_sender(self):
+        if self._sender_task is None:
+            self._sender_task = asyncio.ensure_future(self._drain())
+
+    def stop_sender(self):
+        if self._sender_task is not None:
+            self._sender_task.cancel()
+            self._sender_task = None
+
+    async def _drain(self):
+        """Vide la file en cadençant : ≥ MIN_GAP entre paquets, et jamais plus
+        de SAME_MAX paquets identiques par SAME_WINDOW (on retarde si besoin,
+        on ne jette rien)."""
+        import time
+        try:
+            while True:
+                payload = await self._queue.get()
+                now = time.monotonic()
+                times = self._payload_times.setdefault(payload, [])
+                times[:] = [t for t in times if now - t < self.SAME_WINDOW]
+                if len(times) >= self.SAME_MAX:
+                    wait = self.SAME_WINDOW - (now - times[0]) + 0.02
+                    if wait > 0:
+                        await asyncio.sleep(wait)
+                        now = time.monotonic()
+                        times[:] = [t for t in times if now - t < self.SAME_WINDOW]
+                try:
+                    self.log.note(f"BOT -> {payload}")
+                    self.server_writer.write(payload.encode("latin-1") + b"\n" + DELIM)
+                    await self.server_writer.drain()
+                except Exception:
+                    pass
+                times.append(time.monotonic())
+                if len(self._payload_times) > 256:
+                    self._payload_times = {
+                        p: ts for p, ts in self._payload_times.items()
+                        if ts and now - ts[-1] < 2.0}
+                await asyncio.sleep(self.MIN_GAP)
+        except asyncio.CancelledError:
+            pass
 
     def suppress_client_gkk(self, seconds):
         """Bloque les GKK envoyés par le client pendant `seconds`. Utilisé
@@ -119,9 +181,17 @@ class Session:
                 and time.monotonic() < self._gkk_suppress_until)
 
     def to_server(self, payload):
-        """Envoie un paquet au serveur en imitant le client (qui suffixe \\n)."""
-        self.log.note(f"BOT -> {payload}")
-        self.server_writer.write(payload.encode("latin-1") + b"\n" + DELIM)
+        """Met un paquet dans la file d'émission cadencée du bot (voir _drain).
+        Non bloquant : le lissage/anti-doublon se fait à la sortie de la file."""
+        try:
+            self._queue.put_nowait(payload)
+        except Exception:
+            # File indisponible (avant start_sender) : envoi direct de secours.
+            try:
+                self.log.note(f"BOT -> {payload}")
+                self.server_writer.write(payload.encode("latin-1") + b"\n" + DELIM)
+            except Exception:
+                pass
 
     def to_client(self, payload):
         self.server_writer  # noqa - symétrie
@@ -236,6 +306,7 @@ def make_handler(brain_factory=None):
             return
 
         session = Session(client_writer, server_writer, log)
+        session.start_sender()   # file d'émission cadencée (anti-kick sécurité)
         brain = brain_factory(session) if brain_factory else None
         log.note(f"relais actif — journal : {log.path}")
 
@@ -246,6 +317,7 @@ def make_handler(brain_factory=None):
             pump(client_reader, server_writer, "C>S", log, brain, session, seen_new),
             pump(server_reader, client_writer, "S>C", log, brain, session, seen_new),
         )
+        session.stop_sender()
         if brain is not None and hasattr(brain, "close"):
             try:
                 brain.close()
