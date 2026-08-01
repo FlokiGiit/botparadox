@@ -90,6 +90,11 @@ POUGNETTE_HP = 4700
 SOUL_CAPTURE_SPELL = 413
 SOUL_CAPTURE_REFRESH = 2   # tours de validité du buff
 
+# Seuil de PV max au-dessus duquel un ennemi est considéré comme un boss (les
+# trash de donjon plafonnent bien en dessous : ~49k observé, boss ~118k-225k).
+# Sert à ne lancer la Capture d'âmes que sur un combat de boss.
+BOSS_HP_MIN = 80000
+
 # Sorts a utiliser EXCLUSIVEMENT, si et seulement si le personnage les
 # possede vraiment. Un sort absent du catalogue n'est jamais force : on
 # retombe alors sur le choix normal. Sans ce repli, lister un sort non
@@ -223,6 +228,7 @@ class CombatAI:
         # par les messages cMK du serveur.
         self.obsi = False
         self.obsi_vuln = False
+        self.obsi_boss_seen = False  # l'Obsidiantre a été annoncé (cMK) ce combat
         # Capture d'âmes (sort 413) : buff lancé une fois par combat, tôt (avant
         # de tuer le dernier mob) pour capturer les âmes des vaincus.
         self.capture_souls = False
@@ -412,6 +418,15 @@ class CombatAI:
             out = [f for f in out if f.pvmax != POUGNETTE_HP]
         return out
 
+    def _boss_present(self):
+        """Un boss est-il dans le combat ? (Obsidiantre annoncé via cMK, ou un
+        ennemi au PVmax de boss). Sert à ne lancer la Capture d'âmes que sur un
+        combat de boss, pas sur les salles trash."""
+        if self.obsi_boss_seen:
+            return True
+        return any(f.pvmax >= BOSS_HP_MIN for f in self.fighters.values()
+                   if f.is_monster and f.hp > 0)
+
     async def _probe(self, cell, spell_id):
         """Demande au serveur le degat prevu (ZDM) sur cette cellule pour ce
         sort ; None si la cible est refusee. Le degat renvoye tient deja compte
@@ -576,7 +591,7 @@ class CombatAI:
             # le relance toutes les SOUL_CAPTURE_REFRESH tours pour qu'il reste
             # actif jusqu'à la mort du dernier mob. Le sort 413 doit être possédé.
             self._turn_no += 1
-            if (self.capture_souls and my_cell is not None
+            if (self.capture_souls and my_cell is not None and self._boss_present()
                     and self._turn_no - self._soul_last_turn >= SOUL_CAPTURE_REFRESH):
                 sp = self.catalog.get(
                     (SOUL_CAPTURE_SPELL, self.levels.get(SOUL_CAPTURE_SPELL, 1)))
@@ -592,12 +607,12 @@ class CombatAI:
             if self.script is not None:
                 await self._play_script()
                 return
-            # Mode Obsidiantre : si le boss est invulnérable, on tente la
-            # manœuvre (invoquer l'Araknée à mi-chemin, la pousser dans le
-            # boss). Si elle réussit ce tour, on s'arrête là ; sinon (déjà
-            # vulnérable, ou pas de placement possible) on enchaîne le burst
-            # générique ci-dessous (qui ignore déjà les Pougnettes).
-            if self.obsi and me is not None:
+            # Mode Obsidiantre : UNIQUEMENT quand le vrai Obsidiantre est dans
+            # le combat (annoncé par cMK). Dans les salles trash on ne fait rien
+            # de spécial -> l'IA générique ci-dessous les nettoie normalement.
+            # Si le boss est invulnérable, on tente la manœuvre (invoquer
+            # l'Araknée à mi-chemin, la pousser dans le boss) ; sinon on burste.
+            if self.obsi and self.obsi_boss_seen and me is not None:
                 if await self._obsi_manoeuvre(me):
                     return
             # Buffs sur soi d'abord : ils ne visent personne d'autre, donc
@@ -738,8 +753,10 @@ class CombatAI:
         # Le script de combat persiste (c'est un réglage de mode) mais son
         # compteur de tour repart à zéro à chaque nouveau combat.
         self.script_step = 0
-        # Le boss Obsidiantre commence toujours invulnérable.
+        # Le boss Obsidiantre commence toujours invulnérable ; on n'a pas encore
+        # vu son annonce pour ce combat.
         self.obsi_vuln = False
+        self.obsi_boss_seen = False
         # Compteur de tours + Capture d'âmes à relancer dès le 1er tour.
         self._turn_no = 0
         self._soul_last_turn = -10

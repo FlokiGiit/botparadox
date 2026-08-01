@@ -317,12 +317,15 @@ class Brain:
             if dead.startswith("-"):
                 self.stats.kills += 1
 
-        # Mode Obsidiantre : le serveur annonce l'état d'invulnérabilité du boss
-        # par un message cMK ("devient vulnérable" / "invulnérable"). On le suit
-        # ici pour savoir quand pousser l'Araknée (invulnérable) ou burster
-        # (vulnérable). On teste "invuln" avant "vuln" (sous-chaîne).
-        if self.combat.obsi and msg.startswith("cMK") and "vuln" in msg.lower():
-            self.combat.obsi_vuln = "invuln" not in msg.lower()
+        # Le serveur annonce l'Obsidiantre par des messages cMK ("L'Obsidiantre
+        # devient (in)vulnérable"). C'est le signal EXACT que le boss est là
+        # (peu importe le tier/les PV) : on arme obsi_boss_seen (déclenche la
+        # manœuvre + la Capture d'âmes) et on suit la vulnérabilité. On teste
+        # "invuln" avant "vuln" (sous-chaîne).
+        if msg.startswith("cMK") and "obsidiantre" in msg.lower():
+            self.combat.obsi_boss_seen = True
+            if "vuln" in msg.lower():
+                self.combat.obsi_vuln = "invuln" not in msg.lower()
 
         if (self.in_fight and AUTO_COMBAT and not self.combat_manual
                 and self.stats.enabled and self.stats.mode != "off"):
