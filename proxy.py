@@ -102,6 +102,21 @@ class Session:
         self.client_writer = client_writer
         self.server_writer = server_writer
         self.log = log
+        # Fenêtre pendant laquelle on bloque les GKK du client (ils annulent
+        # nos déplacements de combat injectés). Voir should_drop_client.
+        self._gkk_suppress_until = 0.0
+
+    def suppress_client_gkk(self, seconds):
+        """Bloque les GKK envoyés par le client pendant `seconds`. Utilisé
+        autour d'un déplacement de combat injecté : sinon le client confirme sa
+        propre position (GKK0) et le serveur annule notre mouvement."""
+        import time
+        self._gkk_suppress_until = time.monotonic() + seconds
+
+    def should_drop_client(self, msg):
+        import time
+        return (msg.startswith("GKK")
+                and time.monotonic() < self._gkk_suppress_until)
 
     def to_server(self, payload):
         """Envoie un paquet au serveur en imitant le client (qui suffixe \\n)."""
@@ -144,23 +159,39 @@ def read_handoff():
 
 async def pump(reader, writer, direction, log, brain, session, seen_new):
     buf = b""
+    # Sens client->serveur : on transmet message par message pour pouvoir en
+    # bloquer certains (le GKK du client qui annule nos déplacements de combat).
+    # Sens serveur->client : on transmet le chunk tel quel, sans latence.
+    filtering = (direction == "C>S")
     try:
         while True:
             chunk = await reader.read(65536)
             if not chunk:
                 break
 
-            # On transmet d'abord : ni la journalisation ni le bot ne doivent
-            # ajouter de latence au jeu.
-            writer.write(chunk)
-            await writer.drain()
+            if not filtering:
+                # On transmet d'abord : ni la journalisation ni le bot ne
+                # doivent ajouter de latence au jeu.
+                writer.write(chunk)
+                await writer.drain()
 
             buf += chunk
             while DELIM in buf:
                 raw, buf = buf.split(DELIM, 1)
                 if not raw:
+                    if filtering:            # DELIM isolé : on le transmet tel quel
+                        writer.write(DELIM)
+                        await writer.drain()
                     continue
                 msg = raw.decode("latin-1")
+                # C>S : transmettre ce message SAUF si le bot demande de le
+                # bloquer (GKK pendant un déplacement de combat injecté).
+                if filtering:
+                    if session is not None and session.should_drop_client(msg.strip("\n\r")):
+                        log.note(f"BOT bloque GKK client : {msg.strip()!r}")
+                    else:
+                        writer.write(raw + DELIM)
+                    await writer.drain()
                 code = opcode_of(msg)
                 shown = escape(msg)
                 log.line(direction, code, shown, code in MUTE_IN_CONSOLE)
