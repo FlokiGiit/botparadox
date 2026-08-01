@@ -229,6 +229,11 @@ class CombatAI:
         self.obsi = False
         self.obsi_vuln = False
         self.obsi_boss_seen = False  # l'Obsidiantre a été annoncé (cMK) ce combat
+        # Korriandre (31032) : pose une glyphe sous soi chaque tour ; finir son
+        # tour sur une glyphe = mort. Détecté via cMK "glyphe". On bouge donc
+        # hors de sa case avant de passer. Mécanique INDÉPENDANTE de l'Obsi.
+        self.korri_present = False
+        self._korri_glyphs = set()
         # Capture d'âmes (sort 413) : buff lancé une fois par combat, tôt (avant
         # de tuer le dernier mob) pour capturer les âmes des vaincus.
         self.capture_souls = False
@@ -598,6 +603,10 @@ class CombatAI:
         my_cell = me.cell if me else None
         self.say(f"tour de combat — {self.pa} PA, "
                  f"{len(self._enemies())} ennemi(s)")
+        # Korriandre : la glyphe apparaît sous soi en début de tour -> on note
+        # la case comme piégée pour l'esquiver avant de passer.
+        if self.korri_present and my_cell is not None:
+            self._korri_glyphs.add(my_cell)
 
         try:
             await asyncio.sleep(DELAY_BEFORE_TURN)
@@ -671,6 +680,13 @@ class CombatAI:
             self.say(f"erreur en combat ({e!r}) -> je passe le tour")
         finally:
             await asyncio.sleep(DELAY_BEFORE_END_TURN)
+            # Korriandre : bouger hors de la glyphe AVANT de passer, sinon on
+            # meurt en finissant le tour dessus.
+            if self.active and self.korri_present:
+                try:
+                    await self._dodge_glyph(me)
+                except Exception as e:
+                    self.say(f"korri: esquive impossible ({e!r})")
             # Le dernier sort tue souvent le monstre : le combat se termine
             # pendant qu'on attend. Envoyer un Gt après coup serait un paquet
             # qu'aucun client ne produit.
@@ -702,6 +718,42 @@ class CombatAI:
                 self.s.to_server(f"GA300{spell_id};{cell}")
                 await asyncio.sleep(DELAY_BETWEEN_CASTS)
         self.script_step += 1
+
+    async def _dodge_glyph(self, me):
+        """Korriandre : une glyphe apparaît sous soi au début du tour ; finir le
+        tour dessus = mort. On se déplace donc sur la case libre la plus proche
+        qui n'est pas une glyphe, avant de passer. Rien à voir avec l'Obsi."""
+        if me is None or self.gmap is None or me.pm <= 0:
+            return
+        if me.cell not in self._korri_glyphs:
+            return   # pas sur une glyphe -> rien à esquiver
+        from gamemap import compress_path
+        occupied = {f.cell for f in self.fighters.values() if f.cell != me.cell}
+        # 1) une case adjacente libre hors glyphe (1 PM suffit).
+        for _, nb in self.gmap.neighbours(me.cell):
+            if (nb not in occupied and self.gmap.walkable(nb)
+                    and nb not in self._korri_glyphs):
+                enc = compress_path([me.cell, nb])
+                if enc:
+                    self.say(f"korri: esquive glyphe {me.cell} -> {nb}")
+                    await self._combat_move(enc)
+                    return
+        # 2) sinon, un peu plus loin dans la limite des PM.
+        reach = self._reachable(me.cell, me.pm, occupied)
+        target = next((c for c in reach if c != me.cell
+                       and c not in self._korri_glyphs), None)
+        if target is None:
+            self.say("korri: aucune case hors glyphe atteignable !")
+            return
+        path, cur = [], target
+        while cur is not None:
+            path.append(cur)
+            cur = reach[cur]
+        path.reverse()
+        enc = compress_path(path)
+        if enc:
+            self.say(f"korri: esquive glyphe -> {target} ({len(path) - 1} pas)")
+            await self._combat_move(enc)
 
     async def _combat_move(self, encoded):
         """Déplacement en combat : GA001 PUIS confirmation GKK1. Sans ce GKK1,
@@ -785,6 +837,8 @@ class CombatAI:
         # vu son annonce pour ce combat.
         self.obsi_vuln = False
         self.obsi_boss_seen = False
+        self.korri_present = False
+        self._korri_glyphs = set()
         # Compteur de tours + Capture d'âmes à relancer dès le 1er tour.
         self._turn_no = 0
         self._soul_last_turn = -10

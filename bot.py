@@ -326,6 +326,11 @@ class Brain:
             self.combat.obsi_boss_seen = True
             if "vuln" in msg.lower():
                 self.combat.obsi_vuln = "invuln" not in msg.lower()
+        # Korriandre : le serveur annonce "Une glyphe permanente apparaît..." —
+        # signal que le boss à glyphes est là, on active l'esquive de glyphe
+        # (mécanique séparée de l'Obsidiantre).
+        if msg.startswith("cMK") and "glyphe" in msg.lower():
+            self.combat.korri_present = True
 
         if (self.in_fight and AUTO_COMBAT and not self.combat_manual
                 and self.stats.enabled and self.stats.mode != "off"):
