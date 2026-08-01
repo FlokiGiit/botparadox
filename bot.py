@@ -272,6 +272,8 @@ class Brain:
             self.combat.script = (
                 KRALAMOURE_SCRIPT
                 if self.stats.mode == "kralamoure" else None)
+            # Mode Obsidiantre : combat dynamique (manœuvre de vulnérabilité).
+            self.combat.obsi = (self.stats.mode == "obsi")
             self.stats.fight_start()
             self.say("combat détecté -> récolte en veille")
             # Mode observateur : on regarde le combat sans y toucher — donc pas
@@ -312,6 +314,13 @@ class Brain:
             dead = msg.split(";")[2] if len(msg.split(";")) > 2 else ""
             if dead.startswith("-"):
                 self.stats.kills += 1
+
+        # Mode Obsidiantre : le serveur annonce l'état d'invulnérabilité du boss
+        # par un message cMK ("devient vulnérable" / "invulnérable"). On le suit
+        # ici pour savoir quand pousser l'Araknée (invulnérable) ou burster
+        # (vulnérable). On teste "invuln" avant "vuln" (sous-chaîne).
+        if self.combat.obsi and msg.startswith("cMK") and "vuln" in msg.lower():
+            self.combat.obsi_vuln = "invuln" not in msg.lower()
 
         if (self.in_fight and AUTO_COMBAT and not self.combat_manual
                 and self.stats.enabled and self.stats.mode != "off"):
@@ -562,7 +571,7 @@ class Brain:
         # En farm, ce paquet est le signal qu'on attendait apres un combat :
         # position retrouvee et groupes a jour. Attendre le battement de 2 s
         # ajoutait un temps mort visible entre chaque bagarre.
-        if fresh and self.stats.mode in ("farm", "kralamoure") and not self.in_fight:
+        if fresh and self.stats.mode in ("farm", "kralamoure", "obsi") and not self.in_fight:
             self._maybe_act()
 
     def close(self):
@@ -753,7 +762,10 @@ class Brain:
         if self.stats.mode == "kralamoure":
             self._farm(only_cell=KRALAMOURE_BOSS_CELL)
             return
-        if self.stats.mode == "farm":
+        # Obsi : le boss change de case, donc pas de case fixe -> on engage le
+        # groupe le plus proche comme en farm ; la manœuvre de vulnérabilité se
+        # déclenche une fois en combat (dans l'IA de combat).
+        if self.stats.mode in ("farm", "obsi"):
             self._farm()
             return
 

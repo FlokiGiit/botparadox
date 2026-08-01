@@ -59,6 +59,7 @@
           <Button x:Name="TabHarvest" Click="OnHarvest" Content="Harvest"/>
           <Button x:Name="TabFarm" Click="OnFarm" Content="Farming"/>
           <Button x:Name="TabKral" Click="OnKralamoure" Content="Kralamoure"/>
+          <Button x:Name="TabObsi" Click="OnObsi" Content="Obsi"/>
           <Border Width="1" Background="#262a33" Margin="6,2"/>
           <Ellipse x:Name="Dot" Width="10" Height="10" Fill="#e05561"
                    VerticalAlignment="Center"/>

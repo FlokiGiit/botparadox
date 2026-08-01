@@ -647,6 +647,7 @@ td{padding:6px 8px;border-top:1px solid #262a33;font-variant-numeric:tabular-num
   <button id="tHarvest" onclick="setMode('harvest')">Harvest</button>
   <button id="tFarm" onclick="setMode('farm')">Farming</button>
   <button id="tKrala" onclick="setMode('kralamoure')" title="Combat scripté du Kralamoure Géant (placement fixe)">Kralamoure</button>
+  <button id="tObsi" onclick="setMode('obsi')" title="Donjon Korriandre : pousse l'Araknée dans l'Obsidiantre pour le rendre vulnérable">Obsi</button>
 </div>
 <div class="grid">
   <div class="card farmOnly"><div class="k">Monstres tués</div><div class="v" id="kills">0</div><div class="sub" id="killsRate"></div></div>
@@ -692,7 +693,8 @@ async function tick(){
   document.getElementById('tHarvest').className=d.mode==='harvest'?'on':'';
   document.getElementById('tFarm').className=d.mode==='farm'?'on':'';
   document.getElementById('tKrala').className=d.mode==='kralamoure'?'on':'';
-  document.querySelectorAll('.farmOnly').forEach(e=>e.style.display=(d.mode==='farm'||d.mode==='kralamoure')?'':'none');
+  document.getElementById('tObsi').className=d.mode==='obsi'?'on':'';
+  document.querySelectorAll('.farmOnly').forEach(e=>e.style.display=(d.mode==='farm'||d.mode==='kralamoure'||d.mode==='obsi')?'':'none');
   document.querySelectorAll('.harvestOnly').forEach(e=>e.style.display=d.mode==='harvest'?'':'none');
   document.getElementById('kills').textContent=fmt(d.kills);
   document.getElementById('killsRate').textContent=d.kills_per_hour.toFixed(0)+' / heure';
@@ -733,7 +735,7 @@ async def _handle(reader, writer):
 
         if path.startswith("/mode/"):
             wanted = path.rsplit("/", 1)[-1].split("?")[0]
-            if wanted in ("off", "harvest", "farm", "kralamoure"):
+            if wanted in ("off", "harvest", "farm", "kralamoure", "obsi"):
                 _stats.mode = wanted
                 _stats.event("info", f"mode {wanted}")
                 _stats.persist()

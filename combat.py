@@ -71,6 +71,18 @@ ZDC_MODE = 2
 # automatiquement le jour ou le serveur l'annonce dans SL.
 PREFER_SPELLS = [179]   # Fleche Explosive : zone en cercle, rayon 2
 
+# ── Mode Obsidiantre (donjon Korriandre) ─────────────────────────────────────
+# Boss invulnerable par defaut : on le rend vulnerable en poussant une entite
+# de notre camp (l'Araknee invoquee) DANS lui (collision) -> 3 tours vulnerable.
+# Le boss n'est jamais a la meme case : tout est dynamique.
+#   Araknee  = sort 370 (Invocation d'Arakne, 5 PA, portee 1)
+#   Poussee  = sort 169 (Fleche de Recul, 3 PA)
+#   Pougnette (invocation du boss) = 4700 PV pile, renvoie 150 si frappee,
+#             explose a son 5e tour -> on ne la cible JAMAIS (PVmax == 4700).
+ARAKNE_SUMMON_SPELL = 370
+PUSH_SPELL = 169
+POUGNETTE_HP = 4700
+
 # Sorts a utiliser EXCLUSIVEMENT, si et seulement si le personnage les
 # possede vraiment. Un sort absent du catalogue n'est jamais force : on
 # retombe alors sur le choix normal. Sans ce repli, lister un sort non
@@ -165,6 +177,12 @@ class Fighter:
         self.pa = int(f[3])
         self.pm = int(f[4])
         self.cell = int(f[5])
+        # PVmax (champ 7) : sert a reperer le boss (plus gros PV) et les
+        # Pougnettes (4700 pile) en mode Obsidiantre. Repli sur hp si absent.
+        try:
+            self.pvmax = int(f[7]) if len(f) > 7 and f[7] else self.hp
+        except ValueError:
+            self.pvmax = self.hp
 
     @property
     def is_monster(self):
@@ -193,6 +211,11 @@ class CombatAI:
         # tour. Si défini, il remplace l'IA générique. None = IA normale.
         self.script = None
         self.script_step = 0
+        # Mode Obsidiantre : combat dynamique (pousser l'Araknee dans le boss
+        # pour le rendre vulnerable, puis burst). obsi_vuln suit l'etat annonce
+        # par les messages cMK du serveur.
+        self.obsi = False
+        self.obsi_vuln = False
         self._load_catalog()
 
     # ── lecture du flux ──────────────────────────────────────────────────────
@@ -369,8 +392,13 @@ class CombatAI:
         return scored
 
     def _enemies(self):
-        return [f for f in self.fighters.values()
-                if f.is_monster and f.id != self.char_id and f.hp > 0]
+        out = [f for f in self.fighters.values()
+               if f.is_monster and f.id != self.char_id and f.hp > 0]
+        # En Obsi : ne jamais cibler les Pougnettes (4700 PV pile) — elles
+        # renvoient 150 degats si on les frappe.
+        if self.obsi:
+            out = [f for f in out if f.pvmax != POUGNETTE_HP]
+        return out
 
     async def _probe(self, cell, spell_id):
         """Demande au serveur le degat prevu (ZDM) sur cette cellule pour ce
@@ -452,6 +480,71 @@ class CombatAI:
                 best = cand
         return best
 
+    def _obsi_boss(self):
+        """Le boss = l'ennemi au plus gros PVmax (le GTM ne donne pas le
+        template, mais l'Obsidiantre a beaucoup plus de PV que trash/Pougnettes)."""
+        foes = [f for f in self.fighters.values()
+                if f.is_monster and f.id != self.char_id and f.hp > 0]
+        return max(foes, key=lambda f: f.pvmax) if foes else None
+
+    async def _obsi_manoeuvre(self, me):
+        """Rend le boss vulnérable : se placer à 2 cases du boss en ligne,
+        invoquer l'Araknée sur la case du milieu, puis Flèche de Recul dessus
+        pour la pousser dans le boss (collision -> 3 tours vulnérable).
+
+        Renvoie True si la manœuvre a été jouée (on passe le tour), False s'il
+        faut enchaîner le burst générique (boss déjà vulnérable, ou pas de
+        placement possible). Sûr : on ne lance que des sorts possédés (370/169)
+        et on ne se déplace que sur un chemin réellement praticable."""
+        if self.obsi_vuln or self.gmap is None:
+            return False   # déjà vulnérable -> on tape ; le burst s'en charge
+        boss = self._obsi_boss()
+        if boss is None:
+            return False
+        from gamemap import compress_path
+        occupied = {f.cell for f in self.fighters.values() if f.cell != me.cell}
+        reach = self._reachable(me.cell, me.pm, occupied)
+        # Cherche une ligne C(=moi) - M(=Araknée) - boss : M adjacent au boss,
+        # C adjacent à M dans la MÊME direction (donc à 2 cases du boss). Pousser
+        # M loin de C = vers le boss -> collision.
+        for direction, m in self.gmap.neighbours(boss.cell):
+            if not self.gmap.walkable(m) or m in occupied:
+                continue
+            c = next((cc for d2, cc in self.gmap.neighbours(m) if d2 == direction), None)
+            if c is None:
+                continue
+            if c != me.cell and (c in occupied or not self.gmap.walkable(c) or c not in reach):
+                continue
+            # Placement trouvé. Se déplacer en C si besoin.
+            if c != me.cell:
+                path = []
+                cur = c
+                while cur is not None:
+                    path.append(cur)
+                    cur = reach[cur]
+                path.reverse()
+                enc = compress_path(path)
+                if not enc:
+                    continue
+                self.say(f"obsi: placement en {c} ({len(path) - 1} pas) "
+                         f"pour pousser l'Araknée dans le boss {boss.cell}")
+                self.s.to_server("GA001" + enc)
+                await asyncio.sleep(DELAY_AFTER_MOVE)
+            if not self.active:
+                return True
+            self.say(f"obsi: invocation Araknée ({ARAKNE_SUMMON_SPELL}) sur {m}")
+            self.s.to_server(f"GA300{ARAKNE_SUMMON_SPELL};{m}")
+            await asyncio.sleep(DELAY_BETWEEN_CASTS)
+            if not self.active:
+                return True
+            self.say(f"obsi: Flèche de Recul ({PUSH_SPELL}) sur {m} "
+                     f"-> pousse l'Araknée dans le boss")
+            self.s.to_server(f"GA300{PUSH_SPELL};{m}")
+            await asyncio.sleep(DELAY_BETWEEN_CASTS)
+            return True
+        self.say("obsi: aucune ligne à 2 cases libre vers le boss -> burst")
+        return False
+
     async def _play_turn(self):
         deadline = asyncio.get_running_loop().time() + TURN_DEADLINE
         self.casts.clear()
@@ -471,6 +564,14 @@ class CombatAI:
             if self.script is not None:
                 await self._play_script()
                 return
+            # Mode Obsidiantre : si le boss est invulnérable, on tente la
+            # manœuvre (invoquer l'Araknée à mi-chemin, la pousser dans le
+            # boss). Si elle réussit ce tour, on s'arrête là ; sinon (déjà
+            # vulnérable, ou pas de placement possible) on enchaîne le burst
+            # générique ci-dessous (qui ignore déjà les Pougnettes).
+            if self.obsi and me is not None:
+                if await self._obsi_manoeuvre(me):
+                    return
             # Buffs sur soi d'abord : ils ne visent personne d'autre, donc
             # pas de sondage necessaire, la case est la notre.
             for spell_id in SELF_BUFFS:
@@ -609,3 +710,5 @@ class CombatAI:
         # Le script de combat persiste (c'est un réglage de mode) mais son
         # compteur de tour repart à zéro à chaque nouveau combat.
         self.script_step = 0
+        # Le boss Obsidiantre commence toujours invulnérable.
+        self.obsi_vuln = False

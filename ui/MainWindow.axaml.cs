@@ -344,6 +344,7 @@ public partial class MainWindow : Window
     async void OnHarvest(object? sender, RoutedEventArgs e) => await SetMode("harvest");
     async void OnFarm(object? sender, RoutedEventArgs e) => await SetMode("farm");
     async void OnKralamoure(object? sender, RoutedEventArgs e) => await SetMode("kralamoure");
+    async void OnObsi(object? sender, RoutedEventArgs e) => await SetMode("obsi");
 
     async Task SetMode(string mode)
     {
@@ -469,7 +470,7 @@ public partial class MainWindow : Window
 
         var mode = root.GetProperty("mode").GetString() ?? "harvest";
         // Kralamoure est un mode de combat : mêmes cartes que le farm.
-        var combat = mode == "farm" || mode == "kralamoure";
+        var combat = mode == "farm" || mode == "kralamoure" || mode == "obsi";
         CardKills.IsVisible = combat;
         CardXp.IsVisible = combat;
         CardHarvests.IsVisible = !combat;
@@ -486,6 +487,8 @@ public partial class MainWindow : Window
             mode == "farm" ? "#4a9eff" : "#2a2f3a"));
         TabKral.Background = new SolidColorBrush(Color.Parse(
             mode == "kralamoure" ? "#4a9eff" : "#2a2f3a"));
+        TabObsi.Background = new SolidColorBrush(Color.Parse(
+            mode == "obsi" ? "#4a9eff" : "#2a2f3a"));
 
         Kills.Text = root.GetProperty("kills").GetInt32().ToString("N0");
         KillsRate.Text = $"{root.GetProperty("kills_per_hour").GetDouble():0} / heure";
