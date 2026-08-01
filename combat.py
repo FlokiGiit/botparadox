@@ -184,6 +184,7 @@ class CombatAI:
         self.pa = 0
         self.casts = {}        # id de sort -> nombre de lancers ce tour
         self.probes = {}       # (cellule, sort) -> Future
+        self.zdm_cache = {}    # (cellule, sort) -> degat ZDM, vide a chaque tour
         self.playing = False
         self.active = False    # un combat est réellement en cours
         self.gmap = None       # carte courante, pour le calcul de zone
@@ -371,16 +372,24 @@ class CombatAI:
                 if f.is_monster and f.id != self.char_id and f.hp > 0]
 
     async def _probe(self, cell, spell_id):
-        """Demande au serveur si la cellule est une cible valide."""
+        """Demande au serveur le degat prevu (ZDM) sur cette cellule pour ce
+        sort ; None si la cible est refusee. Le degat renvoye tient deja compte
+        des resistances de la cible. Mis en cache pour le tour : on sonde
+        desormais tous les sorts sur toutes les cibles, sans ce cache on
+        multiplierait les allers-retours ZDC."""
         key = (cell, spell_id)
+        if key in self.zdm_cache:
+            return self.zdm_cache[key]
         fut = asyncio.get_running_loop().create_future()
         self.probes[key] = fut
         self.s.to_server(f"ZDC|{cell}|{ZDC_MODE}|{spell_id}")
         try:
-            return await asyncio.wait_for(fut, PROBE_TIMEOUT)
+            result = await asyncio.wait_for(fut, PROBE_TIMEOUT)
         except asyncio.TimeoutError:
             self.probes.pop(key, None)
-            return None
+            result = None
+        self.zdm_cache[key] = result
+        return result
 
     async def _best_action(self):
         """Meilleur couple (sort, cible) parmi ce qui est payable et validé."""
@@ -394,50 +403,39 @@ class CombatAI:
             and (sp.max_per_turn == 0
                  or self.casts.get(sp.id, 0) < sp.max_per_turn)
         ]
+        # Ordre stable, qui departage les ex-aequo en faveur des sorts imposes
+        # puis des plus chers. Mais on n'arrete PLUS au premier sort qui passe :
+        # on evalue tout et on garde la meilleure valeur reelle.
         candidates.sort(key=self._priority)
 
-        best = None
+        best = None   # (sort, cellule, valeur)
         for sp in candidates:
-            # Sort de zone et plusieurs ennemis : viser le point qui en couvre
-            # le plus, quitte a cibler une case vide. Le serveur ne peut pas
-            # nous souffler ce choix — ZDM ne parle que de la cible visee — mais
-            # il garde le dernier mot puisque la case passe quand meme par ZDC.
+            # Option zone (>=2 ennemis) : meilleure case a portee, valeur =
+            # degat ZDM x nombre d'ennemis couverts. On sonde les meilleures
+            # cases dans l'ordre et on prend la premiere que le serveur accepte
+            # (la toute meilleure peut etre hors portee/LdV).
             if sp.zone_radius >= 1 and len(enemies) >= 2:
-                ranked = self.zone_cells_ranked(sp, enemies, self.gmap)
-                if not ranked:
-                    self.say(f"zone {sp.id} : aucune case ne couvre "
-                             f"2 ennemis ou plus ({len(enemies)} en jeu, "
-                             f"carte {'absente' if self.gmap is None else 'ok'})")
-                else:
-                    # On sonde les meilleures cases dans l'ordre et on garde la
-                    # premiere que le serveur accepte : la meilleure case peut
-                    # etre hors de portee/LdV, la suivante souvent non.
-                    placed = None
-                    for cell, hits in ranked[:ZONE_PROBE_LIMIT]:
-                        damage = await self._probe(cell, sp.id)
-                        if damage:
-                            placed = (sp, cell, damage * hits)
-                            self.say(f"zone {sp.id} : case {cell} couvre "
-                                     f"{hits} ennemis -> acceptee")
-                            break
-                    if placed:
-                        return placed
-                    self.say(f"zone {sp.id} : {len(ranked)} case(s) couvrant 2+ "
-                             f"toutes refusees (hors portee/LdV) -> mono-cible")
-
+                for cell, hits in self.zone_cells_ranked(
+                        sp, enemies, self.gmap)[:ZONE_PROBE_LIMIT]:
+                    damage = await self._probe(cell, sp.id)
+                    if damage:
+                        value = damage * hits
+                        if best is None or value > best[2]:
+                            best = (sp, cell, value)
+                        break   # case suivante = moins d'ennemis, inutile
+            # Option mono-cible : le degat renvoye par ZDM tient deja compte des
+            # resistances de CHAQUE cible, donc "plus gros degat" choisit
+            # automatiquement le sort adapte a la faiblesse du monstre.
             for enemy in enemies:
                 damage = await self._probe(enemy.cell, sp.id)
-                if damage:
-                    if best is None or damage > best[2]:
-                        best = (sp, enemy.cell, damage)
-            if best:
-                # Inutile de sonder les sorts moins chers si celui-ci passe.
-                break
+                if damage and (best is None or damage > best[2]):
+                    best = (sp, enemy.cell, damage)
         return best
 
     async def _play_turn(self):
         deadline = asyncio.get_running_loop().time() + TURN_DEADLINE
         self.casts.clear()
+        self.zdm_cache.clear()   # les degats prevus ne valent que pour ce tour
         total = 0
         me = self.fighters.get(self.char_id)
         self.pa = me.pa if me else 0
