@@ -83,6 +83,10 @@ ARAKNE_SUMMON_SPELL = 370
 PUSH_SPELL = 169
 POUGNETTE_HP = 4700
 
+# Capture d'âmes : buff qui active la capture des âmes des créatures vaincues à
+# la fin du combat. À lancer une fois, tôt (avant de tuer le dernier mob).
+SOUL_CAPTURE_SPELL = 413
+
 # Sorts a utiliser EXCLUSIVEMENT, si et seulement si le personnage les
 # possede vraiment. Un sort absent du catalogue n'est jamais force : on
 # retombe alors sur le choix normal. Sans ce repli, lister un sort non
@@ -216,6 +220,10 @@ class CombatAI:
         # par les messages cMK du serveur.
         self.obsi = False
         self.obsi_vuln = False
+        # Capture d'âmes (sort 413) : buff lancé une fois par combat, tôt (avant
+        # de tuer le dernier mob) pour capturer les âmes des vaincus.
+        self.capture_souls = False
+        self._soul_cast = False
         self._load_catalog()
 
     # ── lecture du flux ──────────────────────────────────────────────────────
@@ -559,6 +567,20 @@ class CombatAI:
 
         try:
             await asyncio.sleep(DELAY_BEFORE_TURN)
+            # Capture d'âmes : en tout début de tour, une seule fois par combat,
+            # AVANT toute attaque (donc avant de tuer le dernier mob). Le sort
+            # 413 doit être possédé (SL) ; sinon le serveur l'ignore.
+            if (self.capture_souls and not self._soul_cast
+                    and my_cell is not None and self.pa >= 1):
+                sp = self.catalog.get(
+                    (SOUL_CAPTURE_SPELL, self.levels.get(SOUL_CAPTURE_SPELL, 1)))
+                cost = sp.pa if sp else 1
+                if self.pa >= cost:
+                    self._soul_cast = True
+                    self.say(f"capture d'âmes ({SOUL_CAPTURE_SPELL}) en début de tour")
+                    self.s.to_server(f"GA300{SOUL_CAPTURE_SPELL};{my_cell}")
+                    self.pa -= cost
+                    await asyncio.sleep(DELAY_BETWEEN_CASTS)
             # Script fixe (ex. Kralamoure) : on rejoue la séquence tour par tour
             # et on saute l'IA générique.
             if self.script is not None:
@@ -712,3 +734,5 @@ class CombatAI:
         self.script_step = 0
         # Le boss Obsidiantre commence toujours invulnérable.
         self.obsi_vuln = False
+        # Capture d'âmes pas encore lancée pour ce combat.
+        self._soul_cast = False

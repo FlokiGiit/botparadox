@@ -183,6 +183,7 @@ class Stats:
         # Avant _restore : sinon la restauration des cibles serait ecrasee.
         self.craft_targets = {}   # templateId -> quantite voulue
         self.harvest_jobs = set()  # metiers a recolter (vide = tous)
+        self.capture_souls = False  # lancer "Capture d'âmes" (sort 413) en combat
         self._restore()
         self.xp_start = None     # XP au premier paquet, pour mesurer le gain
         self.kills = 0
@@ -220,6 +221,7 @@ class Stats:
             self.craft_targets = {int(k): v
                                   for k, v in saved.get("craft", {}).items()}
             self.harvest_jobs = set(saved.get("harvest_jobs", []))
+            self.capture_souls = bool(saved.get("capture_souls", False))
         except (OSError, ValueError):
             pass
 
@@ -239,7 +241,8 @@ class Stats:
                 json.dump({"mode": self.mode, "total": total,
                            "craft": {str(k): v
                                      for k, v in self.craft_targets.items()},
-                           "harvest_jobs": sorted(self.harvest_jobs)}, f)
+                           "harvest_jobs": sorted(self.harvest_jobs),
+                           "capture_souls": self.capture_souls}, f)
         except OSError:
             pass
 
@@ -502,6 +505,7 @@ class Stats:
             "craft": self.craft_snapshot(),
             "enabled": self.enabled,
             "mode": self.mode,
+            "capture_souls": self.capture_souls,
             "kills": self.kills,
             "total_harvests": self.total["harvests"] + self.harvests,
             "total_kills": self.total["kills"] + self.kills,
@@ -649,6 +653,11 @@ td{padding:6px 8px;border-top:1px solid #262a33;font-variant-numeric:tabular-num
   <button id="tKrala" onclick="setMode('kralamoure')" title="Combat scripté du Kralamoure Géant (placement fixe)">Kralamoure</button>
   <button id="tObsi" onclick="setMode('obsi')" title="Donjon Korriandre : pousse l'Araknée dans l'Obsidiantre pour le rendre vulnérable">Obsi</button>
 </div>
+<label style="display:inline-flex;align-items:center;gap:8px;margin:0 0 12px;
+              cursor:pointer;font-size:13px;color:#e6e8eb">
+  <input type="checkbox" id="soulCap" onchange="toggleSoul()" style="width:16px;height:16px">
+  <span>Capture d'âmes <span class="sub">(lance le sort 413 en début de combat)</span></span>
+</label>
 <div class="grid">
   <div class="card farmOnly"><div class="k">Monstres tués</div><div class="v" id="kills">0</div><div class="sub" id="killsRate"></div></div>
   <div class="card farmOnly"><div class="k">XP gagnée</div><div class="v" id="xpg">0</div><div class="sub" id="xpgRate"></div></div>
@@ -694,6 +703,7 @@ async function tick(){
   document.getElementById('tFarm').className=d.mode==='farm'?'on':'';
   document.getElementById('tKrala').className=d.mode==='kralamoure'?'on':'';
   document.getElementById('tObsi').className=d.mode==='obsi'?'on':'';
+  document.getElementById('soulCap').checked=!!d.capture_souls;
   document.querySelectorAll('.farmOnly').forEach(e=>e.style.display=(d.mode==='farm'||d.mode==='kralamoure'||d.mode==='obsi')?'':'none');
   document.querySelectorAll('.harvestOnly').forEach(e=>e.style.display=d.mode==='harvest'?'':'none');
   document.getElementById('kills').textContent=fmt(d.kills);
@@ -720,6 +730,7 @@ async function tick(){
     +`<span class="${e.kind}">${e.text}</span></div>`).join('');
 }
 async function setMode(m){ try{ await fetch('/mode/'+m); tick(); }catch(e){} }
+async function toggleSoul(){ try{ await fetch('/capture/toggle'); tick(); }catch(e){} }
 tick();setInterval(tick,1500);
 </script></body></html>"""
 
@@ -740,6 +751,16 @@ async def _handle(reader, writer):
                 _stats.event("info", f"mode {wanted}")
                 _stats.persist()
             body = json.dumps({"mode": _stats.mode}).encode()
+            writer.write(_headers("application/json", len(body)) + body)
+            await writer.drain()
+            return
+
+        if path.startswith("/capture/toggle"):
+            _stats.capture_souls = not _stats.capture_souls
+            _stats.persist()
+            _stats.event("info", "capture d'âmes " +
+                         ("activée" if _stats.capture_souls else "désactivée"))
+            body = json.dumps({"capture_souls": _stats.capture_souls}).encode()
             writer.write(_headers("application/json", len(body)) + body)
             await writer.drain()
             return

@@ -274,6 +274,8 @@ class Brain:
                 if self.stats.mode == "kralamoure" else None)
             # Mode Obsidiantre : combat dynamique (manœuvre de vulnérabilité).
             self.combat.obsi = (self.stats.mode == "obsi")
+            # Capture d'âmes : lancée en début de combat si la case est cochée.
+            self.combat.capture_souls = self.stats.capture_souls
             self.stats.fight_start()
             self.say("combat détecté -> récolte en veille")
             # Mode observateur : on regarde le combat sans y toucher — donc pas
