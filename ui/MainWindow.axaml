@@ -59,7 +59,6 @@
           <Button x:Name="TabHarvest" Click="OnHarvest" Content="Harvest"/>
           <Button x:Name="TabFarm" Click="OnFarm" Content="Farming"/>
           <Button x:Name="TabKral" Click="OnKralamoure" Content="Kralamoure"/>
-          <Button x:Name="TabObsi" Click="OnObsi" Content="Obsi"/>
           <Border Width="1" Background="#262a33" Margin="6,2"/>
           <CheckBox x:Name="SoulCap" Click="OnSoulToggle" Content="Capture d'âmes"
                     Foreground="#e6e8eb" VerticalAlignment="Center"/>

@@ -272,8 +272,6 @@ class Brain:
             self.combat.script = (
                 KRALAMOURE_SCRIPT
                 if self.stats.mode == "kralamoure" else None)
-            # Mode Obsidiantre : combat dynamique (manœuvre de vulnérabilité).
-            self.combat.obsi = (self.stats.mode == "obsi")
             # Capture d'âmes : lancée en début de combat si la case est cochée.
             self.combat.capture_souls = self.stats.capture_souls
             self.stats.fight_start()
@@ -316,21 +314,6 @@ class Brain:
             dead = msg.split(";")[2] if len(msg.split(";")) > 2 else ""
             if dead.startswith("-"):
                 self.stats.kills += 1
-
-        # Le serveur annonce l'Obsidiantre par des messages cMK ("L'Obsidiantre
-        # devient (in)vulnérable"). C'est le signal EXACT que le boss est là
-        # (peu importe le tier/les PV) : on arme obsi_boss_seen (déclenche la
-        # manœuvre + la Capture d'âmes) et on suit la vulnérabilité. On teste
-        # "invuln" avant "vuln" (sous-chaîne).
-        if msg.startswith("cMK") and "obsidiantre" in msg.lower():
-            self.combat.obsi_boss_seen = True
-            if "vuln" in msg.lower():
-                self.combat.obsi_vuln = "invuln" not in msg.lower()
-        # Korriandre : le serveur annonce "Une glyphe permanente apparaît..." —
-        # signal que le boss à glyphes est là, on active l'esquive de glyphe
-        # (mécanique séparée de l'Obsidiantre).
-        if msg.startswith("cMK") and "glyphe" in msg.lower():
-            self.combat.korri_present = True
 
         if (self.in_fight and AUTO_COMBAT and not self.combat_manual
                 and self.stats.enabled and self.stats.mode != "off"):
@@ -581,7 +564,7 @@ class Brain:
         # En farm, ce paquet est le signal qu'on attendait apres un combat :
         # position retrouvee et groupes a jour. Attendre le battement de 2 s
         # ajoutait un temps mort visible entre chaque bagarre.
-        if fresh and self.stats.mode in ("farm", "kralamoure", "obsi") and not self.in_fight:
+        if fresh and self.stats.mode in ("farm", "kralamoure") and not self.in_fight:
             self._maybe_act()
 
     def close(self):
@@ -772,10 +755,7 @@ class Brain:
         if self.stats.mode == "kralamoure":
             self._farm(only_cell=KRALAMOURE_BOSS_CELL)
             return
-        # Obsi : le boss change de case, donc pas de case fixe -> on engage le
-        # groupe le plus proche comme en farm ; la manœuvre de vulnérabilité se
-        # déclenche une fois en combat (dans l'IA de combat).
-        if self.stats.mode in ("farm", "obsi"):
+        if self.stats.mode == "farm":
             self._farm()
             return
 

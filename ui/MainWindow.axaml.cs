@@ -345,7 +345,6 @@ public partial class MainWindow : Window
     async void OnHarvest(object? sender, RoutedEventArgs e) => await SetMode("harvest");
     async void OnFarm(object? sender, RoutedEventArgs e) => await SetMode("farm");
     async void OnKralamoure(object? sender, RoutedEventArgs e) => await SetMode("kralamoure");
-    async void OnObsi(object? sender, RoutedEventArgs e) => await SetMode("obsi");
 
     // Capture d'âmes : bascule côté bot. Click (et non IsChecked) pour ne se
     // déclencher que sur action utilisateur, pas quand on synchronise l'état.
@@ -478,7 +477,7 @@ public partial class MainWindow : Window
 
         var mode = root.GetProperty("mode").GetString() ?? "harvest";
         // Kralamoure est un mode de combat : mêmes cartes que le farm.
-        var combat = mode == "farm" || mode == "kralamoure" || mode == "obsi";
+        var combat = mode == "farm" || mode == "kralamoure";
         CardKills.IsVisible = combat;
         CardXp.IsVisible = combat;
         CardHarvests.IsVisible = !combat;
@@ -495,8 +494,6 @@ public partial class MainWindow : Window
             mode == "farm" ? "#4a9eff" : "#2a2f3a"));
         TabKral.Background = new SolidColorBrush(Color.Parse(
             mode == "kralamoure" ? "#4a9eff" : "#2a2f3a"));
-        TabObsi.Background = new SolidColorBrush(Color.Parse(
-            mode == "obsi" ? "#4a9eff" : "#2a2f3a"));
         if (root.TryGetProperty("capture_souls", out var soul))
             SoulCap.IsChecked = soul.GetBoolean();
 

@@ -49,14 +49,6 @@ PROBE_TIMEOUT = 2.0
 # on ne pourra jamais spammer les lancers.
 MAX_CASTS_PER_TURN = 6
 
-# Déplacement en combat : DÉSACTIVÉ. Les GA001 injectés sont accordés par le
-# serveur (GA0;1) mais jamais finalisés par le vrai client qui tourne en
-# parallèle (son handshake GAF/GKK ne valide pas un move qu'il n'a pas lancé) —
-# le perso ne bouge donc pas. Tant que ce n'est pas résolu, on n'essaie plus de
-# le déplacer (sinon Araknée mal posée, esquives ratées, actions gâchées). Le
-# combat se limite au burst, qui fonctionne. Repasser à True pour ré-essayer.
-COMBAT_MOVE_ENABLED = False
-
 # Nombre de cases de zone sondees par tour (les meilleures d'abord) avant
 # d'abandonner la zone pour du mono-cible. Assez pour trouver une case a
 # portee quand la toute meilleure ne l'est pas, sans multiplier les allers-
@@ -78,18 +70,6 @@ ZDC_MODE = 2
 # qu'on ne possede pas encore n'a aucun effet, et il sera pris en compte
 # automatiquement le jour ou le serveur l'annonce dans SL.
 PREFER_SPELLS = [179]   # Fleche Explosive : zone en cercle, rayon 2
-
-# ── Mode Obsidiantre (donjon Korriandre) ─────────────────────────────────────
-# Boss invulnerable par defaut : on le rend vulnerable en poussant une entite
-# de notre camp (l'Araknee invoquee) DANS lui (collision) -> 3 tours vulnerable.
-# Le boss n'est jamais a la meme case : tout est dynamique.
-#   Araknee  = sort 370 (Invocation d'Arakne, 5 PA, portee 1)
-#   Poussee  = sort 169 (Fleche de Recul, 3 PA)
-#   Pougnette (invocation du boss) = 4700 PV pile, renvoie 150 si frappee,
-#             explose a son 5e tour -> on ne la cible JAMAIS (PVmax == 4700).
-ARAKNE_SUMMON_SPELL = 370
-PUSH_SPELL = 169
-POUGNETTE_HP = 4700
 
 # Capture d'âmes : buff (2 PA, sur soi) qui active la capture des âmes des
 # créatures vaincues. L'effet ne dure que 2 tours -> on le RELANCE toutes les
@@ -231,17 +211,6 @@ class CombatAI:
         # tour. Si défini, il remplace l'IA générique. None = IA normale.
         self.script = None
         self.script_step = 0
-        # Mode Obsidiantre : combat dynamique (pousser l'Araknee dans le boss
-        # pour le rendre vulnerable, puis burst). obsi_vuln suit l'etat annonce
-        # par les messages cMK du serveur.
-        self.obsi = False
-        self.obsi_vuln = False
-        self.obsi_boss_seen = False  # l'Obsidiantre a été annoncé (cMK) ce combat
-        # Korriandre (31032) : pose une glyphe sous soi chaque tour ; finir son
-        # tour sur une glyphe = mort. Détecté via cMK "glyphe". On bouge donc
-        # hors de sa case avant de passer. Mécanique INDÉPENDANTE de l'Obsi.
-        self.korri_present = False
-        self._korri_glyphs = set()
         # Capture d'âmes (sort 413) : buff lancé une fois par combat, tôt (avant
         # de tuer le dernier mob) pour capturer les âmes des vaincus.
         self.capture_souls = False
@@ -423,38 +392,15 @@ class CombatAI:
         return scored
 
     def _enemies(self):
-        out = [f for f in self.fighters.values()
-               if f.is_monster and f.id != self.char_id and f.hp > 0]
-        # En Obsi : ne jamais cibler les Pougnettes (4700 PV pile) — elles
-        # renvoient 150 degats si on les frappe.
-        if self.obsi:
-            out = [f for f in out if f.pvmax != POUGNETTE_HP]
-        return out
+        return [f for f in self.fighters.values()
+                if f.is_monster and f.id != self.char_id and f.hp > 0]
 
     def _boss_present(self):
-        """Un boss est-il dans le combat ? (Obsidiantre annoncé via cMK, ou un
-        ennemi au PVmax de boss). Sert à ne lancer la Capture d'âmes que sur un
-        combat de boss, pas sur les salles trash."""
-        if self.obsi_boss_seen:
-            return True
+        """Un boss est-il dans le combat ? (un ennemi au PVmax de boss). Sert à
+        ne lancer la Capture d'âmes que sur un combat de boss, pas sur les salles
+        trash (trash ~<=49k, boss ~118k+)."""
         return any(f.pvmax >= BOSS_HP_MIN for f in self.fighters.values()
                    if f.is_monster and f.hp > 0)
-
-    def _obsi_trash_alive(self):
-        """Reste-t-il des mobs à tuer en dehors du boss et des Pougnettes ?
-        On garde l'Obsidiantre pour la fin : tant qu'il reste du trash, on
-        burste (le boss invulnérable ne prend rien de toute façon), et on ne
-        tente la manœuvre Araknée que quand il ne reste plus que le boss —
-        sinon on risquait de pousser l'Araknée dans un autre mob."""
-        for f in self.fighters.values():
-            if not f.is_monster or f.hp <= 0:
-                continue
-            if f.pvmax >= BOSS_HP_MIN:      # le boss lui-même
-                continue
-            if f.pvmax == POUGNETTE_HP:     # Pougnette : on ne la tue pas
-                continue
-            return True
-        return False
 
     async def _probe(self, cell, spell_id):
         """Demande au serveur le degat prevu (ZDM) sur cette cellule pour ce
@@ -536,78 +482,6 @@ class CombatAI:
                 best = cand
         return best
 
-    def _obsi_boss(self):
-        """Le boss = l'ennemi au plus gros PVmax (le GTM ne donne pas le
-        template, mais l'Obsidiantre a beaucoup plus de PV que trash/Pougnettes)."""
-        foes = [f for f in self.fighters.values()
-                if f.is_monster and f.id != self.char_id and f.hp > 0]
-        return max(foes, key=lambda f: f.pvmax) if foes else None
-
-    async def _obsi_manoeuvre(self, me):
-        """Rend le boss vulnérable : se placer à 2 cases du boss en ligne,
-        invoquer l'Araknée sur la case du milieu, puis Flèche de Recul dessus
-        pour la pousser dans le boss (collision -> 3 tours vulnérable).
-
-        Renvoie True si la manœuvre a été jouée (on passe le tour), False s'il
-        faut enchaîner le burst générique (boss déjà vulnérable, ou pas de
-        placement possible). Sûr : on ne lance que des sorts possédés (370/169)
-        et on ne se déplace que sur un chemin réellement praticable."""
-        if self.obsi_vuln or self.gmap is None:
-            return False   # déjà vulnérable -> on tape ; le burst s'en charge
-        boss = self._obsi_boss()
-        if boss is None:
-            return False
-        from gamemap import compress_path, from_rowcol
-        occupied = {f.cell for f in self.fighters.values() if f.cell != me.cell}
-        reach = self._reachable(me.cell, me.pm, occupied)
-        bx, by = self.gmap.coords(boss.cell)
-        # Cherche une ligne DROITE C(=moi) - M(=Araknée) - boss, avec M adjacent
-        # au boss ET à C. On calcule C = symétrique de B par rapport à M dans
-        # l'espace des coordonnées (coords) : ça garantit B, M, C parfaitement
-        # alignés (fini les diagonales faussées par la parité de rangée). On
-        # vérifie ensuite que C est bien un voisin de M (portée 1 de l'invoc).
-        for _, m in self.gmap.neighbours(boss.cell):
-            if not self.gmap.walkable(m) or m in occupied:
-                continue
-            mx, my = self.gmap.coords(m)
-            c = from_rowcol(2 * my - by, 2 * mx - bx)   # C tel que M = milieu(B,C)
-            if c is None:
-                continue
-            # C doit être adjacent à M (sinon l'Araknée serait hors de portée
-            # de l'invocation) et libre/atteignable.
-            if c not in (n for _, n in self.gmap.neighbours(m)):
-                continue
-            if c != me.cell and (c in occupied or not self.gmap.walkable(c) or c not in reach):
-                continue
-            # Placement trouvé. Se déplacer en C si besoin.
-            if c != me.cell:
-                path = []
-                cur = c
-                while cur is not None:
-                    path.append(cur)
-                    cur = reach[cur]
-                path.reverse()
-                enc = compress_path(path)
-                if not enc:
-                    continue
-                self.say(f"obsi: placement en {c} ({len(path) - 1} pas) "
-                         f"pour pousser l'Araknée dans le boss {boss.cell}")
-                await self._combat_move(enc)
-            if not self.active:
-                return True
-            self.say(f"obsi: invocation Araknée ({ARAKNE_SUMMON_SPELL}) sur {m}")
-            self.s.to_server(f"GA300{ARAKNE_SUMMON_SPELL};{m}")
-            await asyncio.sleep(DELAY_BETWEEN_CASTS)
-            if not self.active:
-                return True
-            self.say(f"obsi: Flèche de Recul ({PUSH_SPELL}) sur {m} "
-                     f"-> pousse l'Araknée dans le boss")
-            self.s.to_server(f"GA300{PUSH_SPELL};{m}")
-            await asyncio.sleep(DELAY_BETWEEN_CASTS)
-            return True
-        self.say("obsi: aucune ligne à 2 cases libre vers le boss -> burst")
-        return False
-
     async def _play_turn(self):
         deadline = asyncio.get_running_loop().time() + TURN_DEADLINE
         self.casts.clear()
@@ -619,10 +493,6 @@ class CombatAI:
         my_cell = me.cell if me else None
         self.say(f"tour de combat — {self.pa} PA, "
                  f"{len(self._enemies())} ennemi(s)")
-        # Korriandre : la glyphe apparaît sous soi en début de tour -> on note
-        # la case comme piégée pour l'esquiver avant de passer.
-        if self.korri_present and my_cell is not None:
-            self._korri_glyphs.add(my_cell)
 
         try:
             await asyncio.sleep(DELAY_BEFORE_TURN)
@@ -647,21 +517,6 @@ class CombatAI:
             if self.script is not None:
                 await self._play_script()
                 return
-            # Mode Obsidiantre : on garde le boss pour la fin. Tant qu'il reste
-            # du trash, on laisse l'IA générique le nettoyer (le boss est
-            # invulnérable, il ne prend rien). Quand il ne reste QUE le boss, on
-            # fait la manœuvre : Araknée au càc du boss puis Recul dessus. Ça
-            # évite de pousser l'Araknée dans un autre mob.
-            if (COMBAT_MOVE_ENABLED and self.obsi and self.obsi_boss_seen
-                    and me is not None and not self._obsi_trash_alive()):
-                if await self._obsi_manoeuvre(me):
-                    return
-            # Rapprochement : si Flèche Explosive n'a aucune cible à portée, on
-            # se rapproche (combat normal uniquement — les boss obsi/korri ont
-            # leur propre gestion de déplacement, on ne s'en mêle pas).
-            if (COMBAT_MOVE_ENABLED and my_cell is not None
-                    and not self.obsi_boss_seen and not self.korri_present):
-                await self._approach_for_prefer(me)
             # Buffs sur soi d'abord : ils ne visent personne d'autre, donc
             # pas de sondage necessaire, la case est la notre.
             for spell_id in SELF_BUFFS:
@@ -702,13 +557,6 @@ class CombatAI:
             self.say(f"erreur en combat ({e!r}) -> je passe le tour")
         finally:
             await asyncio.sleep(DELAY_BEFORE_END_TURN)
-            # Korriandre : bouger hors de la glyphe AVANT de passer, sinon on
-            # meurt en finissant le tour dessus.
-            if COMBAT_MOVE_ENABLED and self.active and self.korri_present:
-                try:
-                    await self._dodge_glyph(me)
-                except Exception as e:
-                    self.say(f"korri: esquive impossible ({e!r})")
             # Le dernier sort tue souvent le monstre : le combat se termine
             # pendant qu'on attend. Envoyer un Gt après coup serait un paquet
             # qu'aucun client ne produit.
@@ -740,84 +588,6 @@ class CombatAI:
                 self.s.to_server(f"GA300{spell_id};{cell}")
                 await asyncio.sleep(DELAY_BETWEEN_CASTS)
         self.script_step += 1
-
-    async def _dodge_glyph(self, me):
-        """Korriandre : une glyphe apparaît sous soi au début du tour ; finir le
-        tour dessus = mort. On se déplace donc sur la case libre la plus proche
-        qui n'est pas une glyphe, avant de passer. Rien à voir avec l'Obsi."""
-        if me is None or self.gmap is None or me.pm <= 0:
-            return
-        # La glyphe apparaît sous soi CHAQUE tour : quand le Korriandre est là,
-        # on bouge systématiquement d'au moins une case (on ne se fie pas au
-        # suivi des cases piégées, qui peut rater à cause du timing du cMK).
-        from gamemap import compress_path
-        occupied = {f.cell for f in self.fighters.values() if f.cell != me.cell}
-        # 1) une case adjacente libre hors glyphe (1 PM suffit).
-        for _, nb in self.gmap.neighbours(me.cell):
-            if (nb not in occupied and self.gmap.walkable(nb)
-                    and nb not in self._korri_glyphs):
-                enc = compress_path([me.cell, nb])
-                if enc:
-                    self.say(f"korri: esquive glyphe {me.cell} -> {nb}")
-                    await self._combat_move(enc)
-                    return
-        # 2) sinon, un peu plus loin dans la limite des PM.
-        reach = self._reachable(me.cell, me.pm, occupied)
-        target = next((c for c in reach if c != me.cell
-                       and c not in self._korri_glyphs), None)
-        if target is None:
-            self.say("korri: aucune case hors glyphe atteignable !")
-            return
-        path, cur = [], target
-        while cur is not None:
-            path.append(cur)
-            cur = reach[cur]
-        path.reverse()
-        enc = compress_path(path)
-        if enc:
-            self.say(f"korri: esquive glyphe -> {target} ({len(path) - 1} pas)")
-            await self._combat_move(enc)
-
-    async def _approach_for_prefer(self, me):
-        """Rapproche le perso pour amener un ennemi à portée du sort imposé
-        (Flèche Explosive, portée 8) quand il est trop loin — c'est ce qui
-        faisait qu'Explosive n'était « quasiment jamais » lancée (hors portée).
-        On avance vers l'ennemi le plus proche en s'arrêtant ~à portée."""
-        if self.gmap is None or me is None or me.pm <= 0:
-            return
-        enemies = self._enemies()
-        if not enemies:
-            return
-        sp = None
-        for sid in PREFER_SPELLS:
-            sp = self.catalog.get((sid, self.levels.get(sid, 1)))
-            if sp:
-                break
-        if sp is None:
-            return
-        rng = sp.range_max
-        from gamemap import compress_path
-        best_path = None
-        for e in enemies:
-            for _, nb in self.gmap.neighbours(e.cell):
-                if not self.gmap.walkable(nb):
-                    continue
-                p = self.gmap.find_path(me.cell, nb)
-                if p and (best_path is None or len(p) < len(best_path)):
-                    best_path = p
-        if not best_path:
-            return
-        over = (len(best_path) - 1) - rng   # cases au-delà de la portée du sort
-        if over <= 0:
-            return                          # déjà à portée -> on ne bouge pas
-        steps = min(me.pm, over)
-        if steps < 1:
-            return
-        enc = compress_path(best_path[:steps + 1])
-        if enc:
-            self.say(f"combat: rapprochement pour Flèche Explosive "
-                     f"({steps} pas, portée {rng})")
-            await self._combat_move(enc)
 
     async def _combat_move(self, encoded):
         """Déplacement en combat : GA001 PUIS confirmation GKK1. Sans ce GKK1,
@@ -898,12 +668,6 @@ class CombatAI:
         # Le script de combat persiste (c'est un réglage de mode) mais son
         # compteur de tour repart à zéro à chaque nouveau combat.
         self.script_step = 0
-        # Le boss Obsidiantre commence toujours invulnérable ; on n'a pas encore
-        # vu son annonce pour ce combat.
-        self.obsi_vuln = False
-        self.obsi_boss_seen = False
-        self.korri_present = False
-        self._korri_glyphs = set()
         # Compteur de tours + Capture d'âmes à relancer dès le 1er tour.
         self._turn_no = 0
         self._soul_last_turn = -10
