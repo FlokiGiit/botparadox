@@ -78,11 +78,6 @@ PREFER_SPELLS = [179]   # Fleche Explosive : zone en cercle, rayon 2
 SOUL_CAPTURE_SPELL = 413
 SOUL_CAPTURE_REFRESH = 2   # tours de validité du buff
 
-# Seuil de PV max au-dessus duquel un ennemi est considéré comme un boss (les
-# trash de donjon plafonnent bien en dessous : ~49k observé, boss ~118k-225k).
-# Sert à ne lancer la Capture d'âmes que sur un combat de boss.
-BOSS_HP_MIN = 80000
-
 # Sorts a utiliser EXCLUSIVEMENT, si et seulement si le personnage les
 # possede vraiment. Un sort absent du catalogue n'est jamais force : on
 # retombe alors sur le choix normal. Sans ce repli, lister un sort non
@@ -398,19 +393,16 @@ class CombatAI:
         return [f for f in self.fighters.values()
                 if f.is_monster and f.id != self.char_id and f.hp > 0]
 
-    def _boss_present(self):
-        """Un boss est-il dans le combat ? (un ennemi au PVmax de boss). Sert à
-        ne lancer la Capture d'âmes que sur un combat de boss, pas sur les salles
-        trash (trash ~<=49k, boss ~118k+)."""
-        return any(f.pvmax >= BOSS_HP_MIN for f in self.fighters.values()
-                   if f.is_monster and f.hp > 0)
-
     async def _maybe_cast_capture(self, my_cell):
-        """Lance Capture d'âmes (413) en début de tour si activée ET qu'un boss
-        est présent. Relancée toutes les 2 tours (l'effet ne dure que 2 tours)
-        pour rester actif jusqu'au dernier mob. Sort ignoré par le serveur s'il
-        n'est pas possédé."""
-        if not (self.capture_souls and my_cell is not None and self._boss_present()):
+        """Lance Capture d'âmes (413) en début de tour si la case est activée.
+        On NE filtre PAS sur "boss" : le type de monstre n'est pas connu en
+        combat (GTM ne donne ni template ni type fiable), et l'ancien filtre par
+        PVmax ratait les boss < 80k PV et se faussait quand le PVmax manquait.
+        La case étant cochée à la main pour les runs de boss, on la lance à
+        chaque combat. Relancée toutes les 2 tours (l'effet dure 2 tours). Sort
+        ignoré par le serveur s'il n'est pas possédé, sans effet sur un mob sans
+        âme — le coût est juste 2 PA."""
+        if not (self.capture_souls and my_cell is not None):
             return
         if self._turn_no - self._soul_last_turn < SOUL_CAPTURE_REFRESH:
             return
