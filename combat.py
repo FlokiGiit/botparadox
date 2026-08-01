@@ -22,6 +22,8 @@ import asyncio
 import json
 import os
 
+from boss_ids import DUNGEON_BOSS_IDS
+
 # Découpage d'une entrée de ST.
 ST_PA = 2
 ST_RANGE_MIN = 3
@@ -212,6 +214,10 @@ class CombatAI:
         # Observateur + capture : le bot ne joue pas le tour, il lance seulement
         # Capture d'âmes (le joueur joue lui-même). Positionné par bot.py.
         self.capture_only = False
+        # Un vrai boss de donjon est-il présent dans ce combat ? Renseigné en
+        # lisant le paquet GM d'ouverture (template du mob vs boss_definitions).
+        # Conditionne la Capture d'âmes : on ne la lance que sur les vrais boss.
+        self.boss_in_fight = False
         self._turn_no = 0          # numéro de tour dans le combat courant
         self._soul_last_turn = -10  # tour du dernier lancer de Capture d'âmes
         self._load_catalog()
@@ -227,6 +233,9 @@ class CombatAI:
                 bits = entry.split("~")
                 if len(bits) >= 2 and bits[0].isdigit():
                     self.levels[int(bits[0])] = int(bits[1])
+
+        elif msg.startswith("GM|"):
+            self._read_fight_gm(msg)
 
         elif msg.startswith("GTM|"):
             for blob in msg.split("|")[1:]:
@@ -393,16 +402,36 @@ class CombatAI:
         return [f for f in self.fighters.values()
                 if f.is_monster and f.id != self.char_id and f.hp > 0]
 
+    def _read_fight_gm(self, msg):
+        """Repère un vrai boss de donjon dans le paquet GM d'ouverture de combat.
+
+        Format d'une entrée mob en combat : `+<cell>;<ori>;0;<id>;<template>;-2;
+        <gfx>^<size>;<grade>;...` — le champ [4] est le TEMPLATE du monstre
+        (getPacketsName renvoie le template id pour un mob côté serveur), le
+        champ [5] vaut "-2" pour un monstre (les joueurs y ont leur classe). On
+        compare ce template à la liste `boss_definitions` (DUNGEON_BOSS_IDS)."""
+        for entry in msg.split("|")[1:]:
+            if not entry.startswith("+"):
+                continue
+            fields = entry[1:].split(";")
+            if len(fields) > 5 and fields[5] == "-2":
+                try:
+                    if int(fields[4]) in DUNGEON_BOSS_IDS:
+                        if not self.boss_in_fight:
+                            self.say("boss de donjon détecté — Capture d'âmes armée")
+                        self.boss_in_fight = True
+                except ValueError:
+                    pass
+
     async def _maybe_cast_capture(self, my_cell):
-        """Lance Capture d'âmes (413) en début de tour si la case est activée.
-        On NE filtre PAS sur "boss" : le type de monstre n'est pas connu en
-        combat (GTM ne donne ni template ni type fiable), et l'ancien filtre par
-        PVmax ratait les boss < 80k PV et se faussait quand le PVmax manquait.
-        La case étant cochée à la main pour les runs de boss, on la lance à
-        chaque combat. Relancée toutes les 2 tours (l'effet dure 2 tours). Sort
-        ignoré par le serveur s'il n'est pas possédé, sans effet sur un mob sans
-        âme — le coût est juste 2 PA."""
-        if not (self.capture_souls and my_cell is not None):
+        """Lance Capture d'âmes (413) en début de tour, uniquement si un VRAI
+        boss de donjon est présent (template reconnu via boss_definitions dans
+        le GM d'ouverture — voir _read_fight_gm). Le type de monstre n'étant pas
+        dans GTM, l'ancien filtre par PVmax ratait les boss < 80k et se faussait
+        quand le PVmax manquait ; le template est fiable et sans collision.
+        Relancée toutes les 2 tours (l'effet dure 2 tours). Sort ignoré par le
+        serveur s'il n'est pas possédé."""
+        if not (self.capture_souls and my_cell is not None and self.boss_in_fight):
             return
         if self._turn_no - self._soul_last_turn < SOUL_CAPTURE_REFRESH:
             return
@@ -683,3 +712,5 @@ class CombatAI:
         # Compteur de tours + Capture d'âmes à relancer dès le 1er tour.
         self._turn_no = 0
         self._soul_last_turn = -10
+        # Nouveau combat : on ne sait pas encore si un boss est présent.
+        self.boss_in_fight = False
