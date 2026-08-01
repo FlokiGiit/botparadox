@@ -816,22 +816,14 @@ class CombatAI:
         le serveur ne fige pas le mouvement (le client injecté envoie un GKK0
         qui ne le valide pas) et le perso reste sur place — d'où l'Araknée
         poussée dans le vide. Même schéma que la récolte (qui, elle, marche)."""
-        # Séquence correcte d'un déplacement de combat :
-        #  1) bloquer les GKK du client (son GKK0 confirmerait sa propre
-        #     position et annulerait le mouvement),
-        #  2) envoyer GA001 (le serveur démarre le déplacement),
-        #  3) ATTENDRE que le déplacement s'effectue — surtout PAS de GKK1 tout
-        #     de suite : un GKK1 immédiat dit "déplacement fini" avant que le
-        #     perso ait bougé, le serveur clôt l'action à 0 case (GAF0),
-        #  4) confirmer par GKK1 une fois arrivé.
-        try:
-            self.s.suppress_client_gkk(DELAY_AFTER_MOVE + 0.8)
-        except AttributeError:
-            pass
+        # On envoie SEULEMENT le GA001 : c'est le CLIENT qui finalise le
+        # déplacement en répondant au GAF du serveur par son GKK (cf. son code
+        # onActionsFinish). Bloquer ce GKK ou en envoyer un nous-mêmes cassait
+        # justement la finalisation (le serveur accordait le move mais le perso
+        # ne bougeait pas). On laisse donc le handshake naturel opérer, comme
+        # hors combat.
         self.s.to_server("GA001" + encoded)
-        await asyncio.sleep(DELAY_AFTER_MOVE)   # le déplacement s'effectue
-        self.s.to_server("GKK1")                # confirme APRÈS l'arrivée
-        await asyncio.sleep(0.15)
+        await asyncio.sleep(DELAY_AFTER_MOVE)
 
     def _reachable(self, start, pm, blocked):
         """Cellules praticables atteignables en au plus `pm` pas, avec le
