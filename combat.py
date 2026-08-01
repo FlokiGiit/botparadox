@@ -185,6 +185,7 @@ class CombatAI:
         self.casts = {}        # id de sort -> nombre de lancers ce tour
         self.probes = {}       # (cellule, sort) -> Future
         self.zdm_cache = {}    # (cellule, sort) -> degat ZDM, vide a chaque tour
+        self._range_warned = {}  # sort impose -> deja signale hors portee ce tour
         self.playing = False
         self.active = False    # un combat est réellement en cours
         self.gmap = None       # carte courante, pour le calcul de zone
@@ -391,51 +392,71 @@ class CombatAI:
         self.zdm_cache[key] = result
         return result
 
+    async def _eval_spell(self, sp, enemies):
+        """Meilleur couple (sort, cellule, valeur) pour CE sort, ou None si
+        aucune cible valide (hors portee / LdV). Zone : valeur = degat ZDM x
+        ennemis couverts (le serveur ne compte que la cible visee). Mono-cible :
+        le degat ZDM tient deja compte des resistances de la cible."""
+        best = None
+        if sp.zone_radius >= 1 and len(enemies) >= 2:
+            for cell, hits in self.zone_cells_ranked(
+                    sp, enemies, self.gmap)[:ZONE_PROBE_LIMIT]:
+                damage = await self._probe(cell, sp.id)
+                if damage:
+                    best = (sp, cell, damage * hits)
+                    break   # case suivante = moins d'ennemis, inutile
+        for enemy in enemies:
+            damage = await self._probe(enemy.cell, sp.id)
+            if damage and (best is None or damage > best[2]):
+                best = (sp, enemy.cell, damage)
+        return best
+
     async def _best_action(self):
-        """Meilleur couple (sort, cible) parmi ce qui est payable et validé."""
+        """Sort a lancer : les sorts imposes (Fleche Explosive) d'abord tant
+        qu'une cible est a portee, puis remplissage au meilleur degat reel."""
         enemies = self._enemies()
         if not enemies:
             return None
 
-        candidates = [
+        castable = [
             sp for sp in self._my_spells()
             if sp.pa <= self.pa
             and (sp.max_per_turn == 0
                  or self.casts.get(sp.id, 0) < sp.max_per_turn)
         ]
-        # Ordre stable, qui departage les ex-aequo en faveur des sorts imposes
-        # puis des plus chers. Mais on n'arrete PLUS au premier sort qui passe :
-        # on evalue tout et on garde la meilleure valeur reelle.
-        candidates.sort(key=self._priority)
 
-        best = None   # (sort, cellule, valeur)
-        for sp in candidates:
-            # Option zone (>=2 ennemis) : meilleure case a portee, valeur =
-            # degat ZDM x nombre d'ennemis couverts. On sonde les meilleures
-            # cases dans l'ordre et on prend la premiere que le serveur accepte
-            # (la toute meilleure peut etre hors portee/LdV).
-            if sp.zone_radius >= 1 and len(enemies) >= 2:
-                for cell, hits in self.zone_cells_ranked(
-                        sp, enemies, self.gmap)[:ZONE_PROBE_LIMIT]:
-                    damage = await self._probe(cell, sp.id)
-                    if damage:
-                        value = damage * hits
-                        if best is None or value > best[2]:
-                            best = (sp, cell, value)
-                        break   # case suivante = moins d'ennemis, inutile
-            # Option mono-cible : le degat renvoye par ZDM tient deja compte des
-            # resistances de CHAQUE cible, donc "plus gros degat" choisit
-            # automatiquement le sort adapte a la faiblesse du monstre.
-            for enemy in enemies:
-                damage = await self._probe(enemy.cell, sp.id)
-                if damage and (best is None or damage > best[2]):
-                    best = (sp, enemy.cell, damage)
+        # 1) Sorts imposes : on les force tant qu'ils ont une cible valide et
+        # qu'on n'a pas atteint leur plafond de lancers. C'est ce qui garantit
+        # les 2 Fleches Explosives par tour, meme si un mono-cible taperait plus
+        # fort. Si aucune cible valide -> souvent hors portee : on le signale.
+        for sid in PREFER_SPELLS:
+            sp = next((s for s in castable if s.id == sid), None)
+            if sp is None:
+                continue
+            forced = await self._eval_spell(sp, enemies)
+            if forced:
+                return forced
+            if not self._range_warned.get(sid):
+                self.say(f"sort impose {sid} sans cible a portee "
+                         f"(rappel : portee {sp.range_min}-{sp.range_max}) "
+                         f"-> je remplis avec un autre sort")
+                self._range_warned[sid] = True
+
+        # 2) Remplissage : meilleure valeur reelle parmi le reste.
+        best = None
+        for sp in castable:
+            if sp.id in PREFER_SPELLS:
+                continue
+            cand = await self._eval_spell(sp, enemies)
+            if cand and (best is None or cand[2] > best[2]):
+                best = cand
         return best
 
     async def _play_turn(self):
         deadline = asyncio.get_running_loop().time() + TURN_DEADLINE
         self.casts.clear()
         self.zdm_cache.clear()   # les degats prevus ne valent que pour ce tour
+        self._range_warned.clear()
         total = 0
         me = self.fighters.get(self.char_id)
         self.pa = me.pa if me else 0
