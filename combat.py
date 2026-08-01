@@ -549,17 +549,25 @@ class CombatAI:
         boss = self._obsi_boss()
         if boss is None:
             return False
-        from gamemap import compress_path
+        from gamemap import compress_path, from_rowcol
         occupied = {f.cell for f in self.fighters.values() if f.cell != me.cell}
         reach = self._reachable(me.cell, me.pm, occupied)
-        # Cherche une ligne C(=moi) - M(=Araknée) - boss : M adjacent au boss,
-        # C adjacent à M dans la MÊME direction (donc à 2 cases du boss). Pousser
-        # M loin de C = vers le boss -> collision.
-        for direction, m in self.gmap.neighbours(boss.cell):
+        bx, by = self.gmap.coords(boss.cell)
+        # Cherche une ligne DROITE C(=moi) - M(=Araknée) - boss, avec M adjacent
+        # au boss ET à C. On calcule C = symétrique de B par rapport à M dans
+        # l'espace des coordonnées (coords) : ça garantit B, M, C parfaitement
+        # alignés (fini les diagonales faussées par la parité de rangée). On
+        # vérifie ensuite que C est bien un voisin de M (portée 1 de l'invoc).
+        for _, m in self.gmap.neighbours(boss.cell):
             if not self.gmap.walkable(m) or m in occupied:
                 continue
-            c = next((cc for d2, cc in self.gmap.neighbours(m) if d2 == direction), None)
+            mx, my = self.gmap.coords(m)
+            c = from_rowcol(2 * my - by, 2 * mx - bx)   # C tel que M = milieu(B,C)
             if c is None:
+                continue
+            # C doit être adjacent à M (sinon l'Araknée serait hors de portée
+            # de l'invocation) et libre/atteignable.
+            if c not in (n for _, n in self.gmap.neighbours(m)):
                 continue
             if c != me.cell and (c in occupied or not self.gmap.walkable(c) or c not in reach):
                 continue
@@ -640,6 +648,12 @@ class CombatAI:
                     and not self._obsi_trash_alive()):
                 if await self._obsi_manoeuvre(me):
                     return
+            # Rapprochement : si Flèche Explosive n'a aucune cible à portée, on
+            # se rapproche (combat normal uniquement — les boss obsi/korri ont
+            # leur propre gestion de déplacement, on ne s'en mêle pas).
+            if (my_cell is not None and not self.obsi_boss_seen
+                    and not self.korri_present):
+                await self._approach_for_prefer(me)
             # Buffs sur soi d'abord : ils ne visent personne d'autre, donc
             # pas de sondage necessaire, la case est la notre.
             for spell_id in SELF_BUFFS:
@@ -725,8 +739,9 @@ class CombatAI:
         qui n'est pas une glyphe, avant de passer. Rien à voir avec l'Obsi."""
         if me is None or self.gmap is None or me.pm <= 0:
             return
-        if me.cell not in self._korri_glyphs:
-            return   # pas sur une glyphe -> rien à esquiver
+        # La glyphe apparaît sous soi CHAQUE tour : quand le Korriandre est là,
+        # on bouge systématiquement d'au moins une case (on ne se fie pas au
+        # suivi des cases piégées, qui peut rater à cause du timing du cMK).
         from gamemap import compress_path
         occupied = {f.cell for f in self.fighters.values() if f.cell != me.cell}
         # 1) une case adjacente libre hors glyphe (1 PM suffit).
@@ -753,6 +768,47 @@ class CombatAI:
         enc = compress_path(path)
         if enc:
             self.say(f"korri: esquive glyphe -> {target} ({len(path) - 1} pas)")
+            await self._combat_move(enc)
+
+    async def _approach_for_prefer(self, me):
+        """Rapproche le perso pour amener un ennemi à portée du sort imposé
+        (Flèche Explosive, portée 8) quand il est trop loin — c'est ce qui
+        faisait qu'Explosive n'était « quasiment jamais » lancée (hors portée).
+        On avance vers l'ennemi le plus proche en s'arrêtant ~à portée."""
+        if self.gmap is None or me is None or me.pm <= 0:
+            return
+        enemies = self._enemies()
+        if not enemies:
+            return
+        sp = None
+        for sid in PREFER_SPELLS:
+            sp = self.catalog.get((sid, self.levels.get(sid, 1)))
+            if sp:
+                break
+        if sp is None:
+            return
+        rng = sp.range_max
+        from gamemap import compress_path
+        best_path = None
+        for e in enemies:
+            for _, nb in self.gmap.neighbours(e.cell):
+                if not self.gmap.walkable(nb):
+                    continue
+                p = self.gmap.find_path(me.cell, nb)
+                if p and (best_path is None or len(p) < len(best_path)):
+                    best_path = p
+        if not best_path:
+            return
+        over = (len(best_path) - 1) - rng   # cases au-delà de la portée du sort
+        if over <= 0:
+            return                          # déjà à portée -> on ne bouge pas
+        steps = min(me.pm, over)
+        if steps < 1:
+            return
+        enc = compress_path(best_path[:steps + 1])
+        if enc:
+            self.say(f"combat: rapprochement pour Flèche Explosive "
+                     f"({steps} pas, portée {rng})")
             await self._combat_move(enc)
 
     async def _combat_move(self, encoded):
