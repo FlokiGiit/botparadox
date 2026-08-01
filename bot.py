@@ -551,6 +551,12 @@ class Brain:
             if fields[3] == self.char_id:
                 self.pos = cell
             elif fields[3].startswith("-"):
+                # Percepteur de guilde : id négatif comme un mob, mais marqueur
+                # de type "-6" au champ 5 (les mobs portent "-2"), cf.
+                # Collector.parseGM du serveur. On ne l'agresse pas — sinon le
+                # bot marche dessus, attend l'échec d'engagement, puis repart.
+                if len(fields) > 5 and fields[5] == "-6":
+                    continue
                 self.groups[cell] = fields[3]
                 fresh = True
         # En farm, ce paquet est le signal qu'on attendait apres un combat :
