@@ -317,6 +317,16 @@ class Brain:
 
         if (self.in_fight and AUTO_COMBAT and not self.combat_manual
                 and self.stats.enabled and self.stats.mode != "off"):
+            self.combat.capture_only = False
+            self.combat.on_packet(msg)
+        elif (self.in_fight and self.stats.enabled
+              and self.stats.mode == "off" and self.stats.capture_souls):
+            # Observateur + Capture d'âmes cochée : le joueur joue son combat à
+            # la main, mais le bot lance quand même Capture d'âmes (413) en début
+            # de tour sur les combats de boss. Il ne fait RIEN d'autre (pas de
+            # burst, pas de "prêt", pas de Gt) — voir capture_only dans combat.py.
+            self.combat.capture_only = True
+            self.combat.capture_souls = True
             self.combat.on_packet(msg)
 
         if msg.startswith("OAK"):

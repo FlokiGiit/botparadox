@@ -214,6 +214,9 @@ class CombatAI:
         # Capture d'âmes (sort 413) : buff lancé une fois par combat, tôt (avant
         # de tuer le dernier mob) pour capturer les âmes des vaincus.
         self.capture_souls = False
+        # Observateur + capture : le bot ne joue pas le tour, il lance seulement
+        # Capture d'âmes (le joueur joue lui-même). Positionné par bot.py.
+        self.capture_only = False
         self._turn_no = 0          # numéro de tour dans le combat courant
         self._soul_last_turn = -10  # tour du dernier lancer de Capture d'âmes
         self._load_catalog()
@@ -402,6 +405,26 @@ class CombatAI:
         return any(f.pvmax >= BOSS_HP_MIN for f in self.fighters.values()
                    if f.is_monster and f.hp > 0)
 
+    async def _maybe_cast_capture(self, my_cell):
+        """Lance Capture d'âmes (413) en début de tour si activée ET qu'un boss
+        est présent. Relancée toutes les 2 tours (l'effet ne dure que 2 tours)
+        pour rester actif jusqu'au dernier mob. Sort ignoré par le serveur s'il
+        n'est pas possédé."""
+        if not (self.capture_souls and my_cell is not None and self._boss_present()):
+            return
+        if self._turn_no - self._soul_last_turn < SOUL_CAPTURE_REFRESH:
+            return
+        sp = self.catalog.get(
+            (SOUL_CAPTURE_SPELL, self.levels.get(SOUL_CAPTURE_SPELL, 1)))
+        cost = sp.pa if sp else 2
+        if self.pa < cost:
+            return
+        self._soul_last_turn = self._turn_no
+        self.say(f"capture d'âmes ({SOUL_CAPTURE_SPELL}) — reste actif 2 tours")
+        self.s.to_server(f"GA300{SOUL_CAPTURE_SPELL};{my_cell}")
+        self.pa -= cost
+        await asyncio.sleep(DELAY_BETWEEN_CASTS)
+
     async def _probe(self, cell, spell_id):
         """Demande au serveur le degat prevu (ZDM) sur cette cellule pour ce
         sort ; None si la cible est refusee. Le degat renvoye tient deja compte
@@ -494,24 +517,21 @@ class CombatAI:
         self.say(f"tour de combat — {self.pa} PA, "
                  f"{len(self._enemies())} ennemi(s)")
 
+        self._turn_no += 1
+
+        # Mode Observateur + Capture d'âmes : le bot ne joue pas le tour (le
+        # joueur s'en charge), il lance seulement Capture d'âmes puis rend la
+        # main — surtout PAS de Gt (c'est le joueur qui finit son tour).
+        if self.capture_only:
+            try:
+                await self._maybe_cast_capture(my_cell)
+            finally:
+                self.playing = False
+            return
+
         try:
             await asyncio.sleep(DELAY_BEFORE_TURN)
-            # Capture d'âmes : en tout début de tour, AVANT toute attaque (donc
-            # avant de tuer le moindre mob). L'effet ne dure que 2 tours, donc on
-            # le relance toutes les SOUL_CAPTURE_REFRESH tours pour qu'il reste
-            # actif jusqu'à la mort du dernier mob. Le sort 413 doit être possédé.
-            self._turn_no += 1
-            if (self.capture_souls and my_cell is not None and self._boss_present()
-                    and self._turn_no - self._soul_last_turn >= SOUL_CAPTURE_REFRESH):
-                sp = self.catalog.get(
-                    (SOUL_CAPTURE_SPELL, self.levels.get(SOUL_CAPTURE_SPELL, 1)))
-                cost = sp.pa if sp else 2
-                if self.pa >= cost:
-                    self._soul_last_turn = self._turn_no
-                    self.say(f"capture d'âmes ({SOUL_CAPTURE_SPELL}) — reste actif 2 tours")
-                    self.s.to_server(f"GA300{SOUL_CAPTURE_SPELL};{my_cell}")
-                    self.pa -= cost
-                    await asyncio.sleep(DELAY_BETWEEN_CASTS)
+            await self._maybe_cast_capture(my_cell)
             # Script fixe (ex. Kralamoure) : on rejoue la séquence tour par tour
             # et on saute l'IA générique.
             if self.script is not None:
