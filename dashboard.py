@@ -184,6 +184,12 @@ class Stats:
         self.craft_targets = {}   # templateId -> quantite voulue
         self.harvest_jobs = set()  # metiers a recolter (vide = tous)
         self.capture_souls = False  # lancer "Capture d'âmes" (sort 413) en combat
+        # Donjon en groupe : auto-accepter la validation + nombre de runs voulu +
+        # compteur d'avancement (rapporté par le client). Visible/réglable dans
+        # l'exe et le tableau web ; exécuté côté client (clic "Accepter").
+        self.group_auto = False
+        self.group_runs = 15
+        self.group_done = 0
         self._restore()
         self.xp_start = None     # XP au premier paquet, pour mesurer le gain
         self.kills = 0
@@ -222,6 +228,8 @@ class Stats:
                                   for k, v in saved.get("craft", {}).items()}
             self.harvest_jobs = set(saved.get("harvest_jobs", []))
             self.capture_souls = bool(saved.get("capture_souls", False))
+            self.group_auto = bool(saved.get("group_auto", False))
+            self.group_runs = int(saved.get("group_runs", 15)) or 15
         except (OSError, ValueError):
             pass
 
@@ -242,7 +250,9 @@ class Stats:
                            "craft": {str(k): v
                                      for k, v in self.craft_targets.items()},
                            "harvest_jobs": sorted(self.harvest_jobs),
-                           "capture_souls": self.capture_souls}, f)
+                           "capture_souls": self.capture_souls,
+                           "group_auto": self.group_auto,
+                           "group_runs": self.group_runs}, f)
         except OSError:
             pass
 
@@ -506,6 +516,9 @@ class Stats:
             "enabled": self.enabled,
             "mode": self.mode,
             "capture_souls": self.capture_souls,
+            "group_auto": self.group_auto,
+            "group_runs": self.group_runs,
+            "group_done": self.group_done,
             "kills": self.kills,
             "total_harvests": self.total["harvests"] + self.harvests,
             "total_kills": self.total["kills"] + self.kills,
@@ -657,6 +670,20 @@ td{padding:6px 8px;border-top:1px solid #262a33;font-variant-numeric:tabular-num
   <input type="checkbox" id="soulCap" onchange="toggleSoul()" style="width:16px;height:16px">
   <span>Capture d'âmes <span class="sub">(lance le sort 413 en début de combat)</span></span>
 </label>
+<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;
+            font-size:13px;color:#e6e8eb">
+  <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">
+    <input type="checkbox" id="grpAuto" onchange="toggleGroup()" style="width:16px;height:16px">
+    <span>Donjon groupe : auto‑accepter</span>
+  </label>
+  <span class="sub">Runs :</span>
+  <input type="number" id="grpRuns" min="1" onchange="setGroupRuns()"
+         style="width:64px;padding:5px;border-radius:6px;border:1px solid #333;
+                background:#12141a;color:#e6e8eb">
+  <span id="grpCnt" style="color:#c9a24b;font-weight:800">0 / 15</span>
+  <button onclick="resetGroup()" style="padding:4px 10px;border:0;border-radius:6px;
+          cursor:pointer;background:#4a9eff;color:#0d1117;font-weight:700">reset</button>
+</div>
 <div class="grid">
   <div class="card farmOnly"><div class="k">Monstres tués</div><div class="v" id="kills">0</div><div class="sub" id="killsRate"></div></div>
   <div class="card farmOnly"><div class="k">XP gagnée</div><div class="v" id="xpg">0</div><div class="sub" id="xpgRate"></div></div>
@@ -702,6 +729,9 @@ async function tick(){
   document.getElementById('tFarm').className=d.mode==='farm'?'on':'';
   document.getElementById('tKrala').className=d.mode==='kralamoure'?'on':'';
   document.getElementById('soulCap').checked=!!d.capture_souls;
+  document.getElementById('grpAuto').checked=!!d.group_auto;
+  var gr=document.getElementById('grpRuns'); if(document.activeElement!==gr) gr.value=d.group_runs||15;
+  document.getElementById('grpCnt').textContent=(d.group_done||0)+' / '+(d.group_runs||15);
   document.querySelectorAll('.farmOnly').forEach(e=>e.style.display=(d.mode==='farm'||d.mode==='kralamoure')?'':'none');
   document.querySelectorAll('.harvestOnly').forEach(e=>e.style.display=d.mode==='harvest'?'':'none');
   document.getElementById('kills').textContent=fmt(d.kills);
@@ -729,6 +759,10 @@ async function tick(){
 }
 async function setMode(m){ try{ await fetch('/mode/'+m); tick(); }catch(e){} }
 async function toggleSoul(){ try{ await fetch('/capture/toggle'); tick(); }catch(e){} }
+async function toggleGroup(){ try{ await fetch('/group/auto'); tick(); }catch(e){} }
+async function setGroupRuns(){ var n=document.getElementById('grpRuns').value||15;
+  try{ await fetch('/group/runs?n='+n); tick(); }catch(e){} }
+async function resetGroup(){ try{ await fetch('/group/reset'); tick(); }catch(e){} }
 tick();setInterval(tick,1500);
 </script></body></html>"""
 
@@ -759,6 +793,35 @@ async def _handle(reader, writer):
             _stats.event("info", "capture d'âmes " +
                          ("activée" if _stats.capture_souls else "désactivée"))
             body = json.dumps({"capture_souls": _stats.capture_souls}).encode()
+            writer.write(_headers("application/json", len(body)) + body)
+            await writer.drain()
+            return
+
+        if path.startswith("/group/"):
+            import urllib.parse as up
+            parts = path.split("?")[0].strip("/").split("/")
+            q = up.parse_qs(path.split("?", 1)[1]) if "?" in path else {}
+            try:
+                if parts[1] == "auto":
+                    _stats.group_auto = not _stats.group_auto
+                    if _stats.group_auto:
+                        _stats.group_done = 0
+                    _stats.persist()
+                elif parts[1] == "runs":
+                    n = int(q.get("n", ["15"])[0])
+                    _stats.group_runs = max(1, n)
+                    _stats.group_done = 0
+                    _stats.persist()
+                elif parts[1] == "done":
+                    # rapporté par le client à chaque run acceptée
+                    _stats.group_done = max(0, int(q.get("n", ["0"])[0]))
+                elif parts[1] == "reset":
+                    _stats.group_done = 0
+            except (IndexError, ValueError):
+                pass
+            body = json.dumps({"group_auto": _stats.group_auto,
+                               "group_runs": _stats.group_runs,
+                               "group_done": _stats.group_done}).encode()
             writer.write(_headers("application/json", len(body)) + body)
             await writer.drain()
             return

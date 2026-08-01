@@ -18,7 +18,7 @@ import re
 from client_config import CLIENT_HTML
 
 ORIGIN = "http://127.0.0.1:8765"
-VERSION = 12   # a incrementer si le bloc ci-dessous change
+VERSION = 13   # a incrementer si le bloc ci-dessous change
 
 # L'overlay est un conteneur deplacable (barre du haut) et redimensionnable
 # (poignee en bas a gauche). La geometrie est memorisee dans localStorage, et
@@ -292,10 +292,17 @@ init();
 <script>(function(){
   // Donjon modulaire EN GROUPE : le panneau "VALIDATION DE PARTICIPATION"
   // demande a CHAQUE membre (leader inclus) de cliquer "Accepter", a chaque
-  // run. Corvee a x15. On ajoute une case "Auto-accepter" (memorisee) : quand
-  // elle est cochee, le bot clique "Accepter" des que ce panneau apparait.
-  // On pilote leur UI (leur bouton), rien n'est force cote serveur.
-  var LS='botGrpAuto', LSN='botGrpTarget', done=0, handled=false;
+  // run. Les REGLAGES (activer, nombre de runs, compteur) sont dans l'exe /
+  // le tableau web : ce script se contente de LIRE l'etat depuis le bot,
+  // cliquer "Accepter" quand c'est active, et rapporter l'avancement au bot.
+  var B='__ORIGIN__';
+  var cfg={auto:false, runs:15, done:0}, handled=false;
+  function refresh(){
+    fetch(B+'/stats').then(function(r){return r.json();}).then(function(d){
+      cfg.auto=!!d.group_auto; cfg.runs=d.group_runs||15; cfg.done=d.group_done||0;
+    }).catch(function(){});
+  }
+  refresh(); setInterval(refresh, 1500);
   function panelPresent(){
     return /validation de participation|membres pr/i.test(document.body.textContent||'');
   }
@@ -305,47 +312,16 @@ init();
       return /accepter/i.test(t) && !/refuser|annuler/i.test(t);
     });
   }
-  function target(){ var n=parseInt(localStorage.getItem(LSN),10); return (n&&n>0)?n:15; }
-  function render(){ var c=document.getElementById('botGrpCnt');
-    if(c) c.textContent=done+' / '+target(); }
-  function injectUI(){
-    var b=acceptBtn(); if(!b) return;
-    var host=b.parentElement; if(!host || host.querySelector('#botGrpBox')) return;
-    var box=document.createElement('div'); box.id='botGrpBox';
-    box.style.cssText='margin-top:8px;color:#e6e8eb;font:600 12px system-ui,sans-serif;'
-      +'display:flex;flex-direction:column;gap:5px';
-    var l1=document.createElement('label');
-    l1.style.cssText='display:flex;align-items:center;gap:6px;cursor:pointer';
-    var cb=document.createElement('input'); cb.type='checkbox';
-    cb.checked=localStorage.getItem(LS)==='1'; cb.style.cssText='width:16px;height:16px';
-    cb.onchange=function(){try{localStorage.setItem(LS,cb.checked?'1':'0');}catch(e){}
-      if(cb.checked){done=0;} render();};
-    l1.appendChild(cb);
-    l1.appendChild(document.createTextNode('Auto-accepter donjon groupe'));
-    var l2=document.createElement('div');
-    l2.style.cssText='display:flex;align-items:center;gap:6px';
-    var lab=document.createElement('span'); lab.textContent='Runs :';
-    var num=document.createElement('input'); num.type='number'; num.min='1'; num.value=target();
-    num.style.cssText='width:56px;padding:4px;border-radius:6px;border:1px solid #6a5a3a;'
-      +'background:rgba(0,0,0,.25);color:#f0e6d2;font:inherit';
-    num.onchange=function(){var n=parseInt(num.value,10)||15;
-      try{localStorage.setItem(LSN,String(n));}catch(e){} done=0; render();};
-    var cnt=document.createElement('span'); cnt.id='botGrpCnt';
-    cnt.style.cssText='color:#c9a24b;font-weight:800';
-    var rst=document.createElement('button'); rst.type='button'; rst.textContent='reset';
-    rst.style.cssText='padding:3px 8px;border:0;border-radius:6px;cursor:pointer;'
-      +'background:#4a9eff;color:#0d1117;font-weight:700;font:inherit';
-    rst.onclick=function(){done=0; render();};
-    l2.appendChild(lab); l2.appendChild(num); l2.appendChild(cnt); l2.appendChild(rst);
-    box.appendChild(l1); box.appendChild(l2);
-    host.appendChild(box); render();
-  }
   function tick(){
     if(!panelPresent()){ handled=false; return; }
-    injectUI(); render();
-    if(localStorage.getItem(LS)!=='1' || handled || done>=target()) return;
+    if(!cfg.auto || handled || cfg.done>=cfg.runs) return;
     var b=acceptBtn();
-    if(b && !b.disabled){ handled=true; done++; render(); try{ b.click(); }catch(e){} }
+    if(b && !b.disabled){
+      handled=true;
+      try{ b.click(); }catch(e){}
+      cfg.done=cfg.done+1;
+      fetch(B+'/group/done?n='+cfg.done).catch(function(){});
+    }
   }
   new MutationObserver(tick).observe(document.body,{childList:true,subtree:true});
   setInterval(tick, 800);
