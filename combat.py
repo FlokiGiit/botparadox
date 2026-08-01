@@ -49,6 +49,12 @@ PROBE_TIMEOUT = 2.0
 # on ne pourra jamais spammer les lancers.
 MAX_CASTS_PER_TURN = 6
 
+# Nombre de cases de zone sondees par tour (les meilleures d'abord) avant
+# d'abandonner la zone pour du mono-cible. Assez pour trouver une case a
+# portee quand la toute meilleure ne l'est pas, sans multiplier les allers-
+# retours ZDC.
+ZONE_PROBE_LIMIT = 6
+
 # La valeur médiane observée dans les ZDC du vrai client.
 ZDC_MODE = 2
 
@@ -330,16 +336,19 @@ class CombatAI:
             edge = nxt
         return seen
 
-    def best_zone_cell(self, spell, enemies, gmap):
-        """Case qui met le plus d'ennemis dans la zone du sort.
+    def zone_cells_ranked(self, spell, enemies, gmap):
+        """Cases couvrant >=2 ennemis, triees par nombre d'ennemis touches.
 
         ZDM ne renvoie que le degat sur la cible visee : le serveur ne nous
-        dira jamais qu'une case vide en toucherait trois. Ce calcul est donc
-        le seul endroit du projet ou l'on devance le serveur — mais la case
-        choisie reste soumise a sa validation par ZDC.
+        dira jamais qu'une case vide en toucherait trois. On calcule donc le
+        classement nous-memes, mais on rend TOUTES les bonnes cases (best
+        d'abord) et non une seule : l'appelant sonde dans l'ordre et garde la
+        premiere que le serveur accepte. C'est ce qui corrige le cas ou la
+        meilleure case couvre 6 ennemis mais est hors de portee/LdV — le
+        serveur la refusait et on retombait sur un sort mono-cible.
         """
         if spell.zone_radius < 1 or len(enemies) < 2 or gmap is None:
-            return None
+            return []
         occupied = {e.cell for e in enemies}
         if spell.free_cell:
             # Toutes les cases a portee de zone d'au moins un ennemi.
@@ -347,16 +356,15 @@ class CombatAI:
             for e in enemies:
                 candidates |= self._zone_cells(e.cell, spell.zone_radius, gmap)
         else:
-            # Le sort exige une cible : on se limite aux cases occupees, et on
-            # retient le monstre dont le cercle en couvre le plus. C'est moins
-            # bon qu'un point libre bien place, mais c'est ce que le jeu permet.
+            # Le sort exige une cible : on se limite aux cases occupees.
             candidates = set(occupied)
-        best, best_hits = None, 1
+        scored = []
         for cell in candidates:
             hits = len(self._zone_cells(cell, spell.zone_radius, gmap) & occupied)
-            if hits > best_hits:
-                best, best_hits = cell, hits
-        return (best, best_hits) if best is not None else None
+            if hits >= 2:
+                scored.append((cell, hits))
+        scored.sort(key=lambda t: -t[1])
+        return scored
 
     def _enemies(self):
         return [f for f in self.fighters.values()
@@ -395,24 +403,27 @@ class CombatAI:
             # nous souffler ce choix — ZDM ne parle que de la cible visee — mais
             # il garde le dernier mot puisque la case passe quand meme par ZDC.
             if sp.zone_radius >= 1 and len(enemies) >= 2:
-                zone = self.best_zone_cell(sp, enemies, self.gmap)
-                if zone is None:
-                    # Distinguer les deux echecs possibles : soit le calcul ne
-                    # trouve aucune case interessante, soit le serveur refuse
-                    # celle qu'on propose. Sans ce detail les deux se
-                    # ressemblent dans le journal.
+                ranked = self.zone_cells_ranked(sp, enemies, self.gmap)
+                if not ranked:
                     self.say(f"zone {sp.id} : aucune case ne couvre "
                              f"2 ennemis ou plus ({len(enemies)} en jeu, "
                              f"carte {'absente' if self.gmap is None else 'ok'})")
                 else:
-                    cell, hits = zone
-                    damage = await self._probe(cell, sp.id)
-                    if damage:
-                        self.say(f"zone {sp.id} : case {cell} couvre "
-                                 f"{hits} ennemis -> acceptee")
-                        return (sp, cell, damage * hits)
-                    self.say(f"zone {sp.id} : case {cell} couvrait "
-                             f"{hits} ennemis -> REFUSEE par le serveur")
+                    # On sonde les meilleures cases dans l'ordre et on garde la
+                    # premiere que le serveur accepte : la meilleure case peut
+                    # etre hors de portee/LdV, la suivante souvent non.
+                    placed = None
+                    for cell, hits in ranked[:ZONE_PROBE_LIMIT]:
+                        damage = await self._probe(cell, sp.id)
+                        if damage:
+                            placed = (sp, cell, damage * hits)
+                            self.say(f"zone {sp.id} : case {cell} couvre "
+                                     f"{hits} ennemis -> acceptee")
+                            break
+                    if placed:
+                        return placed
+                    self.say(f"zone {sp.id} : {len(ranked)} case(s) couvrant 2+ "
+                             f"toutes refusees (hors portee/LdV) -> mono-cible")
 
             for enemy in enemies:
                 damage = await self._probe(enemy.cell, sp.id)
