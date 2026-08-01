@@ -36,6 +36,7 @@ public partial class MainWindow : Window
     const string PauseUrl = "http://127.0.0.1:8765/pause";
     const string ResumeUrl = "http://127.0.0.1:8765/resume";
     const string ModeUrl = "http://127.0.0.1:8765/mode/";
+    const string CaptureUrl = "http://127.0.0.1:8765/capture/toggle";
 
     // Les icônes sont lues directement dans les ressources du client plutôt
     // que servies par HTTP : c'est le même disque, autant éviter le détour.
@@ -346,6 +347,13 @@ public partial class MainWindow : Window
     async void OnKralamoure(object? sender, RoutedEventArgs e) => await SetMode("kralamoure");
     async void OnObsi(object? sender, RoutedEventArgs e) => await SetMode("obsi");
 
+    // Capture d'âmes : bascule côté bot. Click (et non IsChecked) pour ne se
+    // déclencher que sur action utilisateur, pas quand on synchronise l'état.
+    async void OnSoulToggle(object? sender, RoutedEventArgs e)
+    {
+        try { await _http.GetStringAsync(CaptureUrl); } catch { }
+    }
+
     async Task SetMode(string mode)
     {
         try { await _http.GetStringAsync(ModeUrl + mode); } catch { }
@@ -489,6 +497,8 @@ public partial class MainWindow : Window
             mode == "kralamoure" ? "#4a9eff" : "#2a2f3a"));
         TabObsi.Background = new SolidColorBrush(Color.Parse(
             mode == "obsi" ? "#4a9eff" : "#2a2f3a"));
+        if (root.TryGetProperty("capture_souls", out var soul))
+            SoulCap.IsChecked = soul.GetBoolean();
 
         Kills.Text = root.GetProperty("kills").GetInt32().ToString("N0");
         KillsRate.Text = $"{root.GetProperty("kills_per_hour").GetDouble():0} / heure";

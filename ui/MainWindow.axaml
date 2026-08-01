@@ -61,6 +61,9 @@
           <Button x:Name="TabKral" Click="OnKralamoure" Content="Kralamoure"/>
           <Button x:Name="TabObsi" Click="OnObsi" Content="Obsi"/>
           <Border Width="1" Background="#262a33" Margin="6,2"/>
+          <CheckBox x:Name="SoulCap" Click="OnSoulToggle" Content="Capture d'âmes"
+                    Foreground="#e6e8eb" VerticalAlignment="Center"/>
+          <Border Width="1" Background="#262a33" Margin="6,2"/>
           <Ellipse x:Name="Dot" Width="10" Height="10" Fill="#e05561"
                    VerticalAlignment="Center"/>
           <TextBlock x:Name="Status" Classes="sub" VerticalAlignment="Center"

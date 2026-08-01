@@ -83,9 +83,12 @@ ARAKNE_SUMMON_SPELL = 370
 PUSH_SPELL = 169
 POUGNETTE_HP = 4700
 
-# Capture d'âmes : buff qui active la capture des âmes des créatures vaincues à
-# la fin du combat. À lancer une fois, tôt (avant de tuer le dernier mob).
+# Capture d'âmes : buff (2 PA, sur soi) qui active la capture des âmes des
+# créatures vaincues. L'effet ne dure que 2 tours -> on le RELANCE toutes les
+# 2 tours pour qu'il reste actif jusqu'à la mort du dernier mob, quel que soit
+# le nombre de tours du combat.
 SOUL_CAPTURE_SPELL = 413
+SOUL_CAPTURE_REFRESH = 2   # tours de validité du buff
 
 # Sorts a utiliser EXCLUSIVEMENT, si et seulement si le personnage les
 # possede vraiment. Un sort absent du catalogue n'est jamais force : on
@@ -223,7 +226,8 @@ class CombatAI:
         # Capture d'âmes (sort 413) : buff lancé une fois par combat, tôt (avant
         # de tuer le dernier mob) pour capturer les âmes des vaincus.
         self.capture_souls = False
-        self._soul_cast = False
+        self._turn_no = 0          # numéro de tour dans le combat courant
+        self._soul_last_turn = -10  # tour du dernier lancer de Capture d'âmes
         self._load_catalog()
 
     # ── lecture du flux ──────────────────────────────────────────────────────
@@ -567,17 +571,19 @@ class CombatAI:
 
         try:
             await asyncio.sleep(DELAY_BEFORE_TURN)
-            # Capture d'âmes : en tout début de tour, une seule fois par combat,
-            # AVANT toute attaque (donc avant de tuer le dernier mob). Le sort
-            # 413 doit être possédé (SL) ; sinon le serveur l'ignore.
-            if (self.capture_souls and not self._soul_cast
-                    and my_cell is not None and self.pa >= 1):
+            # Capture d'âmes : en tout début de tour, AVANT toute attaque (donc
+            # avant de tuer le moindre mob). L'effet ne dure que 2 tours, donc on
+            # le relance toutes les SOUL_CAPTURE_REFRESH tours pour qu'il reste
+            # actif jusqu'à la mort du dernier mob. Le sort 413 doit être possédé.
+            self._turn_no += 1
+            if (self.capture_souls and my_cell is not None
+                    and self._turn_no - self._soul_last_turn >= SOUL_CAPTURE_REFRESH):
                 sp = self.catalog.get(
                     (SOUL_CAPTURE_SPELL, self.levels.get(SOUL_CAPTURE_SPELL, 1)))
-                cost = sp.pa if sp else 1
+                cost = sp.pa if sp else 2
                 if self.pa >= cost:
-                    self._soul_cast = True
-                    self.say(f"capture d'âmes ({SOUL_CAPTURE_SPELL}) en début de tour")
+                    self._soul_last_turn = self._turn_no
+                    self.say(f"capture d'âmes ({SOUL_CAPTURE_SPELL}) — reste actif 2 tours")
                     self.s.to_server(f"GA300{SOUL_CAPTURE_SPELL};{my_cell}")
                     self.pa -= cost
                     await asyncio.sleep(DELAY_BETWEEN_CASTS)
@@ -734,5 +740,6 @@ class CombatAI:
         self.script_step = 0
         # Le boss Obsidiantre commence toujours invulnérable.
         self.obsi_vuln = False
-        # Capture d'âmes pas encore lancée pour ce combat.
-        self._soul_cast = False
+        # Compteur de tours + Capture d'âmes à relancer dès le 1er tour.
+        self._turn_no = 0
+        self._soul_last_turn = -10
