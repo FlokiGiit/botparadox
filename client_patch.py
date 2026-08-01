@@ -18,7 +18,7 @@ import re
 from client_config import CLIENT_HTML
 
 ORIGIN = "http://127.0.0.1:8765"
-VERSION = 10   # a incrementer si le bloc ci-dessous change
+VERSION = 11   # a incrementer si le bloc ci-dessous change
 
 # L'overlay est un conteneur deplacable (barre du haut) et redimensionnable
 # (poignee en bas a gauche). La geometrie est memorisee dans localStorage, et
@@ -288,6 +288,46 @@ init();
   function schedule(){if(pending)return;pending=true;setTimeout(function(){pending=false;inject();},400);}
   new MutationObserver(schedule).observe(document.body,{childList:true,subtree:true});
   inject();
+})();</script>
+<script>(function(){
+  // Donjon modulaire EN GROUPE : le panneau "VALIDATION DE PARTICIPATION"
+  // demande a CHAQUE membre (leader inclus) de cliquer "Accepter", a chaque
+  // run. Corvee a x15. On ajoute une case "Auto-accepter" (memorisee) : quand
+  // elle est cochee, le bot clique "Accepter" des que ce panneau apparait.
+  // On pilote leur UI (leur bouton), rien n'est force cote serveur.
+  var LS='botGrpAuto', accepted=false;
+  function panelPresent(){
+    return /validation de participation|membres pr/i.test(document.body.textContent||'');
+  }
+  function acceptBtn(){
+    return [].slice.call(document.querySelectorAll('button')).find(function(b){
+      var t=b.textContent||'';
+      return /accepter/i.test(t) && !/refuser|annuler/i.test(t);
+    });
+  }
+  function injectToggle(){
+    var b=acceptBtn(); if(!b) return;
+    var host=b.parentElement; if(!host || host.querySelector('#botGrpTgl')) return;
+    var lbl=document.createElement('label'); lbl.id='botGrpTgl';
+    lbl.style.cssText='display:flex;align-items:center;gap:6px;color:#e6e8eb;'
+      +'font:600 12px system-ui,sans-serif;margin-top:8px;cursor:pointer';
+    var cb=document.createElement('input'); cb.type='checkbox';
+    cb.checked=localStorage.getItem(LS)==='1';
+    cb.style.cssText='width:16px;height:16px';
+    cb.onchange=function(){try{localStorage.setItem(LS,cb.checked?'1':'0');}catch(e){}};
+    lbl.appendChild(cb);
+    lbl.appendChild(document.createTextNode('Auto-accepter (donjon groupe)'));
+    host.appendChild(lbl);
+  }
+  function tick(){
+    if(!panelPresent()){ accepted=false; return; }
+    injectToggle();
+    if(localStorage.getItem(LS)!=='1' || accepted) return;
+    var b=acceptBtn();
+    if(b && !b.disabled){ accepted=true; try{ b.click(); }catch(e){} }
+  }
+  new MutationObserver(tick).observe(document.body,{childList:true,subtree:true});
+  setInterval(tick, 800);
 })();</script>
 <!-- LOOT_OVERLAY v__V__ END -->
 """
