@@ -18,7 +18,7 @@ import re
 from client_config import CLIENT_HTML
 
 ORIGIN = "http://127.0.0.1:8765"
-VERSION = 9   # a incrementer si le bloc ci-dessous change
+VERSION = 10   # a incrementer si le bloc ci-dessous change
 
 # L'overlay est un conteneur deplacable (barre du haut) et redimensionnable
 # (poignee en bas a gauche). La geometrie est memorisee dans localStorage, et
@@ -160,8 +160,12 @@ init();
         if(done>=n) return finish('termine \\u2014 '+done+' appliqu\\u00e9e(s)');
         var sel2=findSelect(), btn2=findBtn();
         if(!sel2||!btn2) return finish('panneau ferm\\u00e9 \\u2014 '+done);
-        var has=[].slice.call(sel2.options).some(function(o){return o.value===val;});
-        if(!has) return finish('essence \\u00e9puis\\u00e9e \\u2014 '+done);
+        var opt=[].slice.call(sel2.options).find(function(o){return o.value===val;});
+        if(!opt) return finish('essence \\u00e9puis\\u00e9e \\u2014 '+done);
+        // Cap atteint (ou doublon interdit) : inutile d'insister, et c'est ce
+        // qui bloquait l'UI en spammant une essence qui ne peut plus rien faire.
+        if(/cap atteint|doublon interdit/i.test(opt.text||''))
+          return finish('cap atteint \\u2014 '+done);
         if(sel2.value!==val||sel2.selectedIndex<=0) reselect(sel2,val);
         setTimeout(function(){
           var b=findBtn();
@@ -174,6 +178,111 @@ init();
       step();
     });
     wrap.appendChild(num);wrap.appendChild(go);wrap.appendChild(stat);
+    host.appendChild(wrap);
+  }
+  function schedule(){if(pending)return;pending=true;setTimeout(function(){pending=false;inject();},400);}
+  new MutationObserver(schedule).observe(document.body,{childList:true,subtree:true});
+  inject();
+})();</script>
+<script>(function(){
+  // Panneau Rarete : "Tenter" relance la rarete de l'item (coute 1 Energie
+  // rare) et ECRASE le jet precedent. On ajoute "Auto : roll jusqu'a Rx" qui
+  // relance UN roll a la fois, lit la rarete apres chaque, et S'ARRETE des
+  // qu'on atteint la cible (R9/R10) ou que la ressource est epuisee -> plus
+  // jamais de bon jet ecrase. On pilote LEUR UI (leur bouton, leurs options),
+  // on ne recree rien : c'est exactement ce qu'un joueur ferait a la main.
+  // SECURITE : si la rarete est illisible, on stoppe (jamais de roll a
+  // l'aveugle). Rien n'est force cote serveur : les probas restent les leurs.
+  var TAG='botRareRoll', pending=false, running=false, count=0;
+  function q(s){return document.querySelector(s);}
+  function rollBtn(){return q('.rp__roll-btn');}
+  function rarity(){
+    var el=q('.rp__rarity-big-badge'); if(!el) return -1;
+    var m=(el.textContent||'').match(/R(\\d+)/); return m?parseInt(m[1],10):-1;
+  }
+  function dispo(){
+    var cards=[].slice.call(document.querySelectorAll('.rp__cost-info .fp2__metric-card'));
+    for(var i=0;i<cards.length;i++){
+      if(/dispo/i.test(cards[i].textContent||'')){
+        var v=cards[i].querySelector('.fp2__metric-value');
+        return v?(parseInt((v.textContent||'').replace(/\\D/g,''),10)||0):1e9;
+      }
+    }
+    return 1e9;
+  }
+  function setNum(input,val){
+    try{var d=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value');
+      if(d&&d.set){d.set.call(input,String(val));}else{input.value=String(val);}
+      input.dispatchEvent(new Event('input',{bubbles:true}));
+      input.dispatchEvent(new Event('change',{bubbles:true}));}catch(e){}
+  }
+  function setCheck(txt,desired){
+    var lbls=[].slice.call(document.querySelectorAll('.rp__checkbox-label'));
+    for(var i=0;i<lbls.length;i++){
+      if(new RegExp(txt,'i').test(lbls[i].textContent||'')){
+        var cb=lbls[i].querySelector('input[type=checkbox]');
+        if(cb&&!cb.disabled&&cb.checked!==desired){try{cb.click();}catch(e){}}
+        return;
+      }
+    }
+  }
+  function inject(){
+    var btn=rollBtn(); if(!btn) return;
+    var cta=btn.closest('.rp__roll-cta-row')||btn.parentElement;
+    var host=(cta&&cta.parentElement)||cta; if(!host) return;
+    if(host.querySelector('#'+TAG)) return;
+    var wrap=document.createElement('div'); wrap.id=TAG;
+    wrap.style.cssText='display:flex;gap:8px;align-items:center;flex-wrap:wrap;'
+      +'margin-top:8px;padding-top:8px;border-top:1px solid rgba(148,163,184,.25)';
+    var lbl=document.createElement('span'); lbl.textContent='Auto : roll jusqu\\'a';
+    lbl.style.cssText='font:600 12px system-ui,sans-serif;color:#cbd5e1';
+    var sel=document.createElement('select');
+    sel.style.cssText='padding:5px;border-radius:6px;background:rgba(0,0,0,.25);'
+      +'color:#f0e6d2;border:1px solid #6a5a3a;font:inherit';
+    ['9','10','8','7','6','5'].forEach(function(v){var o=document.createElement('option');
+      o.value=v;o.textContent='R'+v+'+';sel.appendChild(o);});
+    var go=document.createElement('button'); go.type='button'; go.textContent='\\u25b6 Lancer';
+    go.style.cssText='padding:6px 12px;border:0;border-radius:6px;cursor:pointer;'
+      +'background:#eab308;color:#241a08;font-weight:800;font:inherit';
+    var stop=document.createElement('button'); stop.type='button'; stop.textContent='\\u25a0 Stop';
+    stop.style.cssText='padding:6px 12px;border:0;border-radius:6px;cursor:pointer;'
+      +'background:#e05561;color:#fff;font-weight:700;font:inherit;display:none';
+    var stat=document.createElement('span');
+    stat.style.cssText='font:600 12px system-ui,sans-serif;color:#bda87e';
+    function finish(msg){running=false;go.style.display='';stop.style.display='none';
+      if(stat.isConnected)stat.textContent=msg;}
+    function loop(){
+      if(!running) return;
+      var target=parseInt(sel.value,10)||9;
+      var r=rarity();
+      // Rarete illisible -> on n'ose pas relancer (ca ecraserait un bon jet).
+      if(r<0){ finish('rarete illisible - arret'); return; }
+      if(r>=target){ finish('\\u2705 R'+r+' atteint ('+count+' rolls)'); return; }
+      if(dispo()<1){ finish('plus d\\'Energie rare ('+count+' rolls)'); return; }
+      if(count>=20000){ finish('limite de securite ('+count+')'); return; }
+      var b=rollBtn(); if(!b||b.disabled){ finish('bouton indispo ('+count+')'); return; }
+      try{b.click();}catch(e){ finish('erreur'); return; }
+      count++;
+      setTimeout(function(){
+        var dlg=q('.rp__dialog');
+        if(dlg){var c=[].slice.call(dlg.querySelectorAll('button')).find(function(x){
+          return /confirm|valid|^\\s*oui|tenter/i.test((x.textContent||'').trim());});
+          if(c){try{c.click();}catch(e){}}}
+        if(stat.isConnected) stat.textContent=count+' rolls\\u2026 (R'+rarity()+')';
+        setTimeout(loop,500);
+      },160);
+    }
+    go.addEventListener('click',function(){
+      if(running) return;
+      running=true;count=0;go.style.display='none';stop.style.display='';
+      var ni=q('.rp__roll-count-input'); if(ni) setNum(ni,1);   // 1 roll a la fois
+      setCheck('sans animation',true);      // resultat direct = plus rapide
+      setCheck('toujours confirmer',true);  // pas de popup a chaque roll
+      setTimeout(loop,220);
+    });
+    stop.addEventListener('click',function(){ finish('arrete ('+count+' rolls)'); });
+    wrap.appendChild(lbl);wrap.appendChild(sel);wrap.appendChild(go);
+    wrap.appendChild(stop);wrap.appendChild(stat);
     host.appendChild(wrap);
   }
   function schedule(){if(pending)return;pending=true;setTimeout(function(){pending=false;inject();},400);}
