@@ -646,4 +646,13 @@ public partial class MainWindow : Window
         }
         catch { /* pas de navigateur : sans conséquence */ }
     }
+
+    void OnAssist(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(DashboardUrl + "assist") { UseShellExecute = true });
+        }
+        catch { /* pas de navigateur : sans conséquence */ }
+    }
 }

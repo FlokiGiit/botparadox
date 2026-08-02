@@ -189,6 +189,8 @@ class Brain:
         # (reprise du catalogue), et say() ecrit dans la trace.
         self.stats = dashboard.stats()
         self.combat = CombatAI(session, lambda t: self.say(t))
+        # L'assistant de combat (dashboard /assist) lit l'état vif via ce brain.
+        dashboard.set_brain(self)
         self.combat_manual = False   # le joueur a pris la main sur ce combat
         self.stats.reset_session()   # nouvelle partie = bilan a zero
         self.stats.client_connected = True
@@ -581,6 +583,7 @@ class Brain:
         """Appelé par le proxy quand la session de jeu se termine."""
         self.stats.client_connected = False
         self.stats.event("info", "jeu déconnecté")
+        dashboard.set_brain(None)
 
     async def _announce_ready(self):
         """Signale "prêt" au placement, en gardant le placement par défaut."""

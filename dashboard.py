@@ -20,6 +20,9 @@ from collections import deque
 import craft
 import gamedata
 from overlay_page import OVERLAY_PAGE
+from assist_page import ASSIST_PAGE
+import losrange
+from boss_ids import DUNGEON_BOSS_IDS
 
 HOST = "127.0.0.1"
 PORT = 8765
@@ -658,7 +661,11 @@ td{padding:6px 8px;border-top:1px solid #262a33;font-variant-numeric:tabular-num
 .harvest{color:#7dd3a0}.fight{color:#ffb454}.drop{color:#4a9eff;font-weight:600}.levelup{color:#c084fc;font-weight:600}.xp{color:#7dd3a0;font-weight:600}.kamas{color:#ffd166;font-weight:600}
 .off{color:#e05561}
 </style></head><body>
-<h1>Bot Paradox <span id="live" class="off">— hors ligne</span></h1>
+<h1>Bot Paradox <span id="live" class="off">— hors ligne</span>
+  <a href="/assist" target="_blank" style="float:right;font-size:12px;
+     text-transform:none;letter-spacing:0;color:#3fb950;text-decoration:none;
+     border:1px solid #2ea043;border-radius:8px;padding:6px 12px">Assistant de combat ↗</a>
+</h1>
 <div class="tabs">
   <button id="tObserve" onclick="setMode('off')">Observer</button>
   <button id="tHarvest" onclick="setMode('harvest')">Harvest</button>
@@ -930,6 +937,30 @@ async def _handle(reader, writer):
             await writer.drain()
             return
 
+        if path.startswith("/assist/state"):
+            body = json.dumps(_assist_state()).encode("utf-8")
+            writer.write(_headers("application/json", len(body)) + body)
+            await writer.drain()
+            return
+
+        if path.startswith("/assist/valid"):
+            import urllib.parse as up
+            q = up.parse_qs(path.split("?", 1)[1]) if "?" in path else {}
+            try:
+                sid = int(q.get("spell", ["0"])[0])
+            except ValueError:
+                sid = 0
+            body = json.dumps(_assist_valid(sid)).encode("utf-8")
+            writer.write(_headers("application/json", len(body)) + body)
+            await writer.drain()
+            return
+
+        if path.startswith("/assist"):
+            body = ASSIST_PAGE.encode("utf-8")
+            writer.write(_headers("text/html; charset=utf-8", len(body)) + body)
+            await writer.drain()
+            return
+
         if path.startswith("/overlay"):
             body = OVERLAY_PAGE.encode("utf-8")
             ctype = "text/html; charset=utf-8"
@@ -972,9 +1003,79 @@ async def _handle(reader, writer):
 
 _stats = Stats()
 
+# Référence vers le Brain courant (posée par bot.py). Sert à l'assistant de
+# combat, qui lit l'état vif du combat (combattants, carte, sorts) sans passer
+# par le réseau. None hors connexion.
+_brain = None
+
 
 def stats():
     return _stats
+
+
+def set_brain(brain):
+    global _brain
+    _brain = brain
+
+
+def _assist_state():
+    """Photo de l'état de combat pour l'assistant : combattants + mes sorts +
+    géométrie de la carte (pour le rendu). {'active': False} hors combat."""
+    b = _brain
+    if b is None:
+        return {"active": False}
+    c = getattr(b, "combat", None)
+    g = getattr(c, "gmap", None) if c else None
+    if c is None or g is None or not c.active or c.char_id is None:
+        return {"active": False}
+    me = c.fighters.get(c.char_id)
+    fighters = []
+    for f in c.fighters.values():
+        if f.hp <= 0:
+            continue
+        tpl = c.fighter_templates.get(f.id)
+        fighters.append({
+            "cell": f.cell,
+            "me": f.id == c.char_id,
+            "enemy": f.is_monster,
+            "boss": bool(tpl and tpl in DUNGEON_BOSS_IDS),
+        })
+    spells = []
+    seen = set()
+    for sid, lvl in c.levels.items():
+        sp = c.catalog.get((sid, lvl)) or c.catalog.get((sid, 1))
+        if sp is None or sp.id in seen:
+            continue
+        seen.add(sp.id)
+        spells.append({"id": sp.id, "name": sp.name, "pa": sp.pa,
+                       "rmin": sp.range_min, "rmax": sp.range_max,
+                       "los": sp.los, "free_cell": sp.free_cell})
+    spells.sort(key=lambda s: s["id"])
+    cells = [{"w": g.walkable(i), "l": g.cells[i]["los"]} for i in range(len(g))]
+    return {"active": True, "my_cell": me.cell if me else None,
+            "fighters": fighters, "spells": spells, "cells": cells}
+
+
+def _assist_valid(spell_id):
+    """Cases où le sort peut être lancé depuis ma position (portée + LdV),
+    calculées en local (losrange). Liste vide si indisponible."""
+    b = _brain
+    c = getattr(b, "combat", None) if b else None
+    g = getattr(c, "gmap", None) if c else None
+    if c is None or g is None or not c.active or c.char_id is None:
+        return {"cells": []}
+    me = c.fighters.get(c.char_id)
+    if me is None:
+        return {"cells": []}
+    lvl = c.levels.get(spell_id, 1)
+    sp = c.catalog.get((spell_id, lvl)) or c.catalog.get((spell_id, 1))
+    if sp is None:
+        return {"cells": []}
+    occupied = {f.cell for f in c.fighters.values() if f.hp > 0}
+    cells = losrange.valid_target_cells(
+        g, me.cell, sp.range_min, sp.range_max, sp.los, sp.free_cell, occupied)
+    return {"center": me.cell, "spell": spell_id, "cells": cells,
+            "rmin": sp.range_min, "rmax": sp.range_max, "los": sp.los}
 
 
 async def serve():

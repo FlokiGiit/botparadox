@@ -49,6 +49,7 @@
           <Button x:Name="Shutdown" Click="OnShutdown" Content="Arrêter le bot"
                   IsEnabled="False"/>
           <Button x:Name="OpenWeb" Click="OnOpenWeb" Content="Tableau de bord web"/>
+          <Button x:Name="Assist" Click="OnAssist" Content="Assistant de combat"/>
           <Button x:Name="ClientDir" Click="OnClientDir" Content="Dossier du jeu"/>
         </WrapPanel>
         <!-- modes + état -->

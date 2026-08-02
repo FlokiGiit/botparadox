@@ -28,10 +28,16 @@ from boss_ids import DUNGEON_BOSS_IDS
 ST_PA = 2
 ST_RANGE_MIN = 3
 ST_RANGE_MAX = 4
-ST_MAX_PER_TURN = 11      # 0 = pas de limite
+# Ligne de vue requise (1/0). Repéré en comparant les entrées ST : =1 pour
+# toutes les attaques (Flèche Explosive, Magique, Recul...) et Tir Puissant,
+# =0 pour Maîtrise de l'Arc (buff sans LdV).
+ST_LOS = 8
 ST_FREE_CELL = 9
+ST_MAX_PER_TURN = 11      # 0 = pas de limite
 ST_ZONE = 16
 ST_CATEGORY = 19
+# Nom du sort : premier champ non vide et non numérique après la description.
+ST_NAME_FROM = 21
 
 # Délais : assez courts pour ne pas perdre de temps, assez présents pour ne pas
 # répondre en zéro milliseconde là où un humain met au moins le temps du clic.
@@ -153,8 +159,18 @@ class Spell:
         # accepte une case vide comme cible. Flèche Explosive vaut 0, et le
         # serveur a refuse 42 tentatives de suite avant que ce champ soit lu.
         self.free_cell = fields[ST_FREE_CELL] not in ("0", "")
+        self.los = len(fields) > ST_LOS and fields[ST_LOS] == "1"
         zone = fields[ST_ZONE] if len(fields) > ST_ZONE else ""
         self.zone_radius = (ord(zone[1]) - ord("a")) if len(zone) >= 2 else 0
+        # Nom lisible (pour l'assistant de combat), sinon "sort <id>".
+        self.name = f"sort {self.id}"
+        import urllib.parse as _up
+        for f in fields[ST_NAME_FROM:ST_CATEGORY + 6]:
+            if f and not f.replace(".", "").isdigit():
+                cand = _up.unquote(f)
+                if cand and not cand.isdigit():
+                    self.name = cand
+                    break
 
     @property
     def offensive(self):
@@ -218,6 +234,9 @@ class CombatAI:
         # lisant le paquet GM d'ouverture (template du mob vs boss_definitions).
         # Conditionne la Capture d'âmes : on ne la lance que sur les vrais boss.
         self.boss_in_fight = False
+        # id de combat -> template du monstre (lu dans le GM). Sert à marquer le
+        # boss sur la grille de l'assistant de combat.
+        self.fighter_templates = {}
         self._turn_no = 0          # numéro de tour dans le combat courant
         self._soul_last_turn = -10  # tour du dernier lancer de Capture d'âmes
         self._load_catalog()
@@ -416,7 +435,9 @@ class CombatAI:
             fields = entry[1:].split(";")
             if len(fields) > 5 and fields[5] == "-2":
                 try:
-                    if int(fields[4]) in DUNGEON_BOSS_IDS:
+                    template = int(fields[4])
+                    self.fighter_templates[fields[3]] = template
+                    if template in DUNGEON_BOSS_IDS:
                         if not self.boss_in_fight:
                             self.say("boss de donjon détecté — Capture d'âmes armée")
                         self.boss_in_fight = True
@@ -714,3 +735,4 @@ class CombatAI:
         self._soul_last_turn = -10
         # Nouveau combat : on ne sait pas encore si un boss est présent.
         self.boss_in_fight = False
+        self.fighter_templates = {}
