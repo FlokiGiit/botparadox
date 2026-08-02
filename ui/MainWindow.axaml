@@ -69,19 +69,6 @@
           <TextBlock x:Name="Status" Classes="sub" VerticalAlignment="Center"
                      Text="arrêté"/>
         </WrapPanel>
-        <!-- donjon groupe -->
-        <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
-          <TextBlock Text="DONJON GROUPE" Classes="k" VerticalAlignment="Center"
-                     Margin="0,0,4,0"/>
-          <CheckBox x:Name="GrpAuto" Click="OnGroupToggle" Content="Auto‑accepter"
-                    Foreground="#e6e8eb" VerticalAlignment="Center"/>
-          <TextBlock Text="Runs" Classes="sub" VerticalAlignment="Center"/>
-          <TextBox x:Name="GrpRuns" Width="60" Text="15"
-                   KeyDown="OnGroupRunsKey" LostFocus="OnGroupRunsCommit"/>
-          <TextBlock x:Name="GrpCnt" VerticalAlignment="Center"
-                     Foreground="#c9a24b" FontWeight="Bold" Text="0 / 15"/>
-          <Button x:Name="GrpReset" Click="OnGroupReset" Content="reset"/>
-        </WrapPanel>
       </StackPanel>
     </Border>
 

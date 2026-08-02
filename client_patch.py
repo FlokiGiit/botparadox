@@ -18,7 +18,7 @@ import re
 from client_config import CLIENT_HTML
 
 ORIGIN = "http://127.0.0.1:8765"
-VERSION = 13   # a incrementer si le bloc ci-dessous change
+VERSION = 14   # a incrementer si le bloc ci-dessous change
 
 # L'overlay est un conteneur deplacable (barre du haut) et redimensionnable
 # (poignee en bas a gauche). La geometrie est memorisee dans localStorage, et
@@ -288,43 +288,6 @@ init();
   function schedule(){if(pending)return;pending=true;setTimeout(function(){pending=false;inject();},400);}
   new MutationObserver(schedule).observe(document.body,{childList:true,subtree:true});
   inject();
-})();</script>
-<script>(function(){
-  // Donjon modulaire EN GROUPE : le panneau "VALIDATION DE PARTICIPATION"
-  // demande a CHAQUE membre (leader inclus) de cliquer "Accepter", a chaque
-  // run. Les REGLAGES (activer, nombre de runs, compteur) sont dans l'exe /
-  // le tableau web : ce script se contente de LIRE l'etat depuis le bot,
-  // cliquer "Accepter" quand c'est active, et rapporter l'avancement au bot.
-  var B='__ORIGIN__';
-  var cfg={auto:false, runs:15, done:0}, handled=false;
-  function refresh(){
-    fetch(B+'/stats').then(function(r){return r.json();}).then(function(d){
-      cfg.auto=!!d.group_auto; cfg.runs=d.group_runs||15; cfg.done=d.group_done||0;
-    }).catch(function(){});
-  }
-  refresh(); setInterval(refresh, 1500);
-  function panelPresent(){
-    return /validation de participation|membres pr/i.test(document.body.textContent||'');
-  }
-  function acceptBtn(){
-    return [].slice.call(document.querySelectorAll('button')).find(function(b){
-      var t=b.textContent||'';
-      return /accepter/i.test(t) && !/refuser|annuler/i.test(t);
-    });
-  }
-  function tick(){
-    if(!panelPresent()){ handled=false; return; }
-    if(!cfg.auto || handled || cfg.done>=cfg.runs) return;
-    var b=acceptBtn();
-    if(b && !b.disabled){
-      handled=true;
-      try{ b.click(); }catch(e){}
-      cfg.done=cfg.done+1;
-      fetch(B+'/group/done?n='+cfg.done).catch(function(){});
-    }
-  }
-  new MutationObserver(tick).observe(document.body,{childList:true,subtree:true});
-  setInterval(tick, 800);
 })();</script>
 <!-- LOOT_OVERLAY v__V__ END -->
 """

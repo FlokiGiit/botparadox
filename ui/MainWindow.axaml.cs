@@ -13,7 +13,6 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Avalonia.Controls;
-using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -38,7 +37,6 @@ public partial class MainWindow : Window
     const string ResumeUrl = "http://127.0.0.1:8765/resume";
     const string ModeUrl = "http://127.0.0.1:8765/mode/";
     const string CaptureUrl = "http://127.0.0.1:8765/capture/toggle";
-    const string GroupUrl = "http://127.0.0.1:8765/group/";
 
     // Les icônes sont lues directement dans les ressources du client plutôt
     // que servies par HTTP : c'est le même disque, autant éviter le détour.
@@ -355,32 +353,6 @@ public partial class MainWindow : Window
         try { await _http.GetStringAsync(CaptureUrl); } catch { }
     }
 
-    // Donjon groupe : auto‑accepter les runs, régler le nombre, compteur, reset.
-    async void OnGroupToggle(object? sender, RoutedEventArgs e)
-    {
-        try { await _http.GetStringAsync(GroupUrl + "auto"); } catch { }
-    }
-
-    async void OnGroupReset(object? sender, RoutedEventArgs e)
-    {
-        try { await _http.GetStringAsync(GroupUrl + "reset"); } catch { }
-    }
-
-    void OnGroupRunsKey(object? sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.Enter) CommitGroupRuns();
-    }
-
-    void OnGroupRunsCommit(object? sender, RoutedEventArgs e) => CommitGroupRuns();
-
-    async void CommitGroupRuns()
-    {
-        if (int.TryParse(GrpRuns.Text, out var n) && n >= 1)
-        {
-            try { await _http.GetStringAsync(GroupUrl + "runs?n=" + n); } catch { }
-        }
-    }
-
     async Task SetMode(string mode)
     {
         try { await _http.GetStringAsync(ModeUrl + mode); } catch { }
@@ -524,13 +496,6 @@ public partial class MainWindow : Window
             mode == "kralamoure" ? "#4a9eff" : "#2a2f3a"));
         if (root.TryGetProperty("capture_souls", out var soul))
             SoulCap.IsChecked = soul.GetBoolean();
-
-        if (root.TryGetProperty("group_auto", out var gAuto))
-            GrpAuto.IsChecked = gAuto.GetBoolean();
-        var gRuns = root.TryGetProperty("group_runs", out var gr) ? gr.GetInt32() : 15;
-        var gDone = root.TryGetProperty("group_done", out var gd) ? gd.GetInt32() : 0;
-        if (!GrpRuns.IsFocused) GrpRuns.Text = gRuns.ToString();
-        GrpCnt.Text = $"{gDone} / {gRuns}";
 
         Kills.Text = root.GetProperty("kills").GetInt32().ToString("N0");
         KillsRate.Text = $"{root.GetProperty("kills_per_hour").GetDouble():0} / heure";
