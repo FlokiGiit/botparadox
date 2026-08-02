@@ -288,6 +288,20 @@ class CombatAI:
         elif msg.startswith("ZDM|"):
             self._resolve_probe(msg)
 
+        elif msg.startswith("GA0;1;"):
+            # Déplacement en combat : GA0;1;<id>;<chemin>. La dernière case du
+            # chemin est l'arrivée. Sans ça, la position d'un combattant (dont la
+            # mienne) restait figée à sa case de début de tour — l'assistant
+            # calculait alors la portée depuis la mauvaise case.
+            parts = msg.split(";")
+            if len(parts) >= 4 and parts[3]:
+                f = self.fighters.get(parts[2])
+                if f is not None:
+                    from protocol import path_decode
+                    steps = path_decode(parts[3])
+                    if steps:
+                        f.cell = steps[-1][1]
+
         elif msg.startswith("GA;103;"):
             # Mort d'un combattant.
             dead = msg.split(";")[2]
