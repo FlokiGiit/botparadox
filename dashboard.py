@@ -1051,7 +1051,8 @@ def _assist_state():
         seen.add(sp.id)
         spells.append({"id": sp.id, "name": sp.name, "pa": sp.pa,
                        "rmin": sp.range_min, "rmax": sp.range_max,
-                       "los": sp.los, "free_cell": sp.free_cell})
+                       "los": sp.los, "free_cell": sp.free_cell,
+                       "summon": getattr(sp, "summon", False)})
     spells.sort(key=lambda s: s["id"])
     cells = [{"w": g.walkable(i), "l": g.cells[i]["los"]} for i in range(len(g))]
     turns = getattr(c, "confusion_turns", 0)
@@ -1079,9 +1080,12 @@ def _assist_valid(spell_id):
     if sp is None:
         return {"cells": []}
     occupied = {f.cell for f in c.fighters.values() if f.hp > 0}
+    summon = getattr(sp, "summon", False)
     # Cases où le sort ATTERRIT réellement (portée + LdV depuis ma position).
+    # Invocation -> cases libres praticables (où poser la créature).
     landings = losrange.valid_target_cells(
-        g, me.cell, sp.range_min, sp.range_max, sp.los, sp.free_cell, occupied)
+        g, me.cell, sp.range_min, sp.range_max, sp.los, sp.free_cell, occupied,
+        placement=summon)
     turns = getattr(c, "confusion_turns", 0)
     total = len(g)
     if turns:
@@ -1095,11 +1099,11 @@ def _assist_valid(spell_id):
         return {"center": me.cell, "spell": spell_id,
                 "cells": [p[0] for p in pairs], "pairs": pairs,
                 "rmin": sp.range_min, "rmax": sp.range_max, "los": sp.los,
-                "confusion": turns}
+                "summon": summon, "confusion": turns}
     return {"center": me.cell, "spell": spell_id, "cells": landings,
             "pairs": [[e, e] for e in landings],
             "rmin": sp.range_min, "rmax": sp.range_max, "los": sp.los,
-            "confusion": 0}
+            "summon": summon, "confusion": 0}
 
 
 async def serve():

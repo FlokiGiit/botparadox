@@ -155,11 +155,16 @@ def rotate_around(total, center, cell, quarter_clockwise):
     return -1
 
 
-def valid_target_cells(gmap, center, rmin, rmax, needs_los, free_cell, occupied):
+def valid_target_cells(gmap, center, rmin, rmax, needs_los, free_cell, occupied,
+                       placement=False):
     """Cases où le sort peut être lancé depuis `center` : dans la portée
-    [rmin, rmax], LdV dégagée si le sort l'exige, et occupée par une entité si
-    le sort n'accepte pas les cellules libres. `occupied` = set des cases avec
-    un combattant."""
+    [rmin, rmax], LdV dégagée si le sort l'exige. `occupied` = set des cases
+    avec un combattant.
+
+    - placement=True (invocation) : la case doit être LIBRE et PRATICABLE
+      (on pose une créature dessus).
+    - sinon : occupée par une entité si le sort n'accepte pas les cellules
+      libres (free_cell)."""
     total = len(gmap)
     occupied = set(occupied)
     out = []
@@ -169,7 +174,10 @@ def valid_target_cells(gmap, center, rmin, rmax, needs_los, free_cell, occupied)
         d = distance(center, c)
         if d < rmin or d > rmax:
             continue
-        if not free_cell and c not in occupied:
+        if placement:
+            if c in occupied or not gmap.walkable(c):
+                continue
+        elif not free_cell and c not in occupied:
             continue
         if needs_los and not check_los(gmap, center, c, occupied - {c}):
             continue

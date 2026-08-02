@@ -200,12 +200,16 @@ function renderInfo(){
     var sp=spellById(selected)||{};
     var enough=state.my_pa>=sp.pa;
     var n=valid.cells?valid.cells.length:0;
-    det.innerHTML='<b>'+(sp.name||'')+'</b><br>'
+    var isSum=!!(sp.summon || valid.summon);
+    var verb=isSum?'où invoquer':'où viser';
+    det.innerHTML='<b>'+(sp.name||'')+'</b>'+(isSum?' <span class="sub">(invocation)</span>':'')+'<br>'
       +'Coût : <b class="'+(enough?'ok':'no')+'">'+sp.pa+' PA</b>'
       +' (tu as '+state.my_pa+')<br>'
       +'Portée : '+sp.rmin+'–'+sp.rmax+' · Ligne de vue : '+(sp.los?'oui':'non')+'<br>'
-      +(n?('<b class="ok">'+n+' case'+(n>1?'s':'')+'</b> où viser (en vert)')
-          :'<b class="no">aucune case</b> d\'ici : rapproche-toi ou change de sort');
+      +(n?('<b class="ok">'+n+' case'+(n>1?'s':'')+'</b> '+verb+' (en vert)')
+          :'<b class="no">aucune case</b> '+(isSum?'libre à portée':'d\'ici')
+            +' : rapproche-toi ou change de sort')
+      +(isSum?'<br><span class="sub">Pose sur une case libre. Astuce Comte Harebourg : place l\'invocation pour la pousser dans le boss (le rend vulnérable, tour pair).</span>':'');
   }
   document.getElementById('hint').textContent = state.enemies+' ennemi'+(state.enemies>1?'s':'')
     +' en jeu. Clique un sort pour voir où le lancer.';

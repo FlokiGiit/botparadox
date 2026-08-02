@@ -160,6 +160,16 @@ class Spell:
         # serveur a refuse 42 tentatives de suite avant que ce champ soit lu.
         self.free_cell = fields[ST_FREE_CELL] not in ("0", "")
         self.los = len(fields) > ST_LOS and fields[ST_LOS] == "1"
+        # Sort d'invocation : porte l'effet 181 ("Invoque une créature"). Pour
+        # ces sorts, l'assistant montre où POSER (case libre praticable) au lieu
+        # d'où frapper. Les blocs d'effets sont aux champs 17 (normal) et 18 (crit).
+        self.summon = False
+        for _idx in (17, 18):
+            if len(fields) > _idx and fields[_idx]:
+                import urllib.parse as _up
+                for _eff in _up.unquote(fields[_idx]).split("|"):
+                    if _eff.split(";")[0].strip() == "181":
+                        self.summon = True
         zone = fields[ST_ZONE] if len(fields) > ST_ZONE else ""
         self.zone_radius = (ord(zone[1]) - ord("a")) if len(zone) >= 2 else 0
         # Nom lisible (pour l'assistant de combat), sinon "sort <id>".
