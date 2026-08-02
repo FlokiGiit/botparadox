@@ -1061,7 +1061,42 @@ def _assist_state():
             "my_pa": me.pa if me else 0, "my_pm": me.pm if me else 0,
             "enemies": sum(1 for f in fighters if f["enemy"]),
             "confusion": {"turns": turns, "label": labels.get(turns, "aucune")},
+            "harebourg": _harebourg_plan(c, g, me, turns),
             "fighters": fighters, "spells": spells, "cells": cells}
+
+
+def _harebourg_plan(c, g, me, turns):
+    """Plan de déblocage du Comte Harebourg (Gousset). Pour rendre le Comte
+    vulnérable : une entité (ton invocation) doit être sur la symétrique du
+    Comte par rapport à toi (toi au milieu), puis tu FRAPPES le Comte sur un
+    tour PAIR → il échange avec l'invocation et devient vulnérable. On renvoie
+    où poser l'invoc et où cliquer pour taper (rotation de confusion compensée).
+    None si le Comte n'est pas là."""
+    comte = None
+    for f in c.fighters.values():
+        if f.hp > 0 and c.fighter_templates.get(f.id) == 31077:
+            comte = f
+            break
+    if comte is None or me is None:
+        return None
+    total = len(g)
+    occupied = {f.cell for f in c.fighters.values() if f.hp > 0}
+    dist = losrange.distance(me.cell, comte.cell)
+    # Case où poser l'invocation = symétrique du Comte par rapport à moi.
+    invoc = losrange.reflect(total, me.cell, comte.cell)
+    invoc_ok = invoc >= 0 and g.walkable(invoc) and invoc not in occupied
+    # Cases à CLIQUER (rotation de confusion compensée) :
+    invoc_click = losrange.rotate_around(total, me.cell, invoc, turns) if invoc >= 0 else -1
+    hit_click = losrange.rotate_around(total, me.cell, comte.cell, turns)
+    return {
+        "comte": comte.cell,
+        "dist": dist,
+        "adjacent": dist == 1,
+        "invoc": invoc if invoc_ok else -1,
+        "invoc_click": invoc_click if invoc_ok else -1,
+        "hit_click": hit_click,
+        "delock_turn": (getattr(c, "comte_turns", 0) % 2 == 1),
+    }
 
 
 def _assist_valid(spell_id):

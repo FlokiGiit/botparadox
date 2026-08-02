@@ -66,6 +66,9 @@ ASSIST_PAGE = r"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
     <div class="box" id="confbox" style="display:none;border-color:var(--boss)">
       <h2 style="color:var(--boss)">⟳ Confusion (Comte Harebourg)</h2>
       <div class="tip" id="confdet"></div></div>
+    <div class="box" id="harebox" style="display:none;border-color:#a371f7">
+      <h2 style="color:#a371f7">🎯 Déblocage du Comte</h2>
+      <div class="tip" id="haredet"></div></div>
     <div class="box"><h2>Toi</h2><div class="big" id="mypapm">— PA · — PM</div>
       <div class="sub" id="mycell"></div></div>
     <div class="box" id="spellbox"><h2>Sort sélectionné</h2>
@@ -134,6 +137,18 @@ function draw(){
     ctx.beginPath();ctx.arc(cx,cy,f.boss?7:5,0,7);ctx.fillStyle=col;ctx.fill();
     if(f.boss){ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.stroke();}
   });
+  // plan de déblocage du Comte Harebourg : INV (poser l'invoc) + TAP (frapper)
+  var h=state.harebourg;
+  if(h){
+    if(h.invoc_click>=0) mark(ctx,h.invoc_click,off,'#a371f7','INV');
+    if(h.hit_click>=0)   mark(ctx,h.hit_click,off,'#f0883e','TAP');
+  }
+}
+function mark(ctx,cell,off,color,label){
+  var s=screenXY(cell),cx=s[0]+off,cy=s[1]+CH/2+1;
+  diamond(ctx,cx,cy,color,'#fff');
+  ctx.fillStyle='#0d1117';ctx.font='bold 8px sans-serif';ctx.textAlign='center';
+  ctx.fillText(label,cx,cy+3);
 }
 
 function renderSpells(){
@@ -181,6 +196,27 @@ function renderInfo(){
       +'Le sort part décalé. Les cases <b class="ok">vertes</b> sont où <b>CLIQUER</b> '
       +'(déjà compensé) ; l\'anneau doré = où ça atterrit vraiment.';
   } else { cb.style.display='none'; }
+  // plan déblocage du Comte
+  var hb=document.getElementById('harebox'), h=state.harebourg;
+  if(h){
+    hb.style.display='';
+    var s='Boss en case <b>'+h.comte+'</b> (à '+h.dist+' de toi).<br>';
+    if(!h.adjacent){
+      s+='➊ <b>Mets-toi AU CONTACT du boss</b> (à côté), sinon l\'Araknée (portée 1) ne peut pas se poser en face.';
+    } else if(h.invoc_click<0){
+      s+='➊ Case en face du boss occupée/non praticable : déplace-toi d\'une case autour du boss.';
+    } else {
+      s+='➊ Invoque ton Araknée : clique la case <b style="color:#a371f7">'+h.invoc_click+' (INV)</b>'
+        + (h.invoc_click!==h.invoc?' <span class="sub">(rotation compensée → pose en '+h.invoc+')</span>':'')+'.<br>'
+        + '➋ Puis <b>frappe le boss</b> : clique la case <b style="color:#f0883e">'+h.hit_click+' (TAP)</b>'
+        + (h.hit_click!==h.comte?' <span class="sub">(rotation compensée)</span>':'')+'.<br>'
+        + '→ le Comte échange avec l\'Araknée et devient <b class="ok">vulnérable</b>.';
+    }
+    s+='<br><span class="'+(h.delock_turn?'ok':'no')+'">'
+      + (h.delock_turn?'✔ Tour PAIR : déblocage possible maintenant.'
+                      :'✘ Tour impair : le déblocage marchera au prochain tour.')+'</span>';
+    document.getElementById('haredet').innerHTML=s;
+  } else { hb.style.display='none'; }
   // combattants
   var order=(state.fighters||[]).slice().sort(function(a,b){
     return (a.me?0:a.boss?1:a.enemy?2:3)-(b.me?0:b.boss?1:b.enemy?2:3);});
@@ -224,7 +260,9 @@ function refreshValid(){
 
 function sigOf(d){
   if(!d||!d.active) return 'off';
+  var h=d.harebourg||{};
   return d.my_cell+'|'+d.my_pa+'|'+d.my_pm+'|'+((d.confusion||{}).turns||0)+'|'
+    +(h.delock_turn?1:0)+'|'+(h.invoc_click||-1)+'|'+(h.hit_click||-1)+'|'
     +(d.fighters||[]).map(function(f){return f.cell+':'+f.hp;}).join(',');
 }
 var lastSig="";

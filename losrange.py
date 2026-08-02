@@ -155,6 +155,18 @@ def rotate_around(total, center, cell, quarter_clockwise):
     return -1
 
 
+def reflect(total, center, cell):
+    """Symétrique de `cell` par rapport à `center` : 2*center - cell (repris de
+    symmetricCell). Sert au déblocage Gousset du Comte Harebourg : l'invocation
+    doit être sur la symétrique du Comte par rapport à moi. -1 si hors grille."""
+    cx, cy = cell_x(center), cell_y(center)
+    x, y = 2 * cx - cell_x(cell), 2 * cy - cell_y(cell)
+    c = W * x + (W - 1) * y
+    if 0 <= c < total and cell_x(c) == x and cell_y(c) == y:
+        return c
+    return -1
+
+
 def valid_target_cells(gmap, center, rmin, rmax, needs_los, free_cell, occupied,
                        placement=False):
     """Cases où le sort peut être lancé depuis `center` : dans la portée

@@ -250,6 +250,10 @@ class CombatAI:
         # Confusion du Comte Harebourg : quarts de tour horaires appliqués à la
         # visée (0 = aucune). L'assistant s'en sert pour compenser la rotation.
         self.confusion_turns = 0
+        # Comte Harebourg : id de combat du boss + nombre de ses tours joués
+        # (parité = fenêtre de déblocage Gousset).
+        self.comte_id = None
+        self.comte_turns = 0
         self._turn_no = 0          # numéro de tour dans le combat courant
         self._soul_last_turn = -10  # tour du dernier lancer de Capture d'âmes
         self._load_catalog()
@@ -281,6 +285,10 @@ class CombatAI:
         elif msg.startswith("GTS") and self.char_id:
             # GTS<id>|<durée>|<numéro de tour>
             who = msg[3:].split("|")[0]
+            if who == self.comte_id:
+                # Un tour du Comte de plus : la parité conditionne la fenêtre
+                # de déblocage Gousset (déblocable quand le nb de ses tours est impair).
+                self.comte_turns += 1
             if who == self.char_id and not self.playing:
                 self.playing = True
                 asyncio.create_task(self._play_turn())
@@ -485,6 +493,8 @@ class CombatAI:
                 try:
                     template = int(fields[4])
                     self.fighter_templates[fields[3]] = template
+                    if template == 31077:      # Comte Harebourg
+                        self.comte_id = fields[3]
                     if template in DUNGEON_BOSS_IDS:
                         if not self.boss_in_fight:
                             self.say("boss de donjon détecté — Capture d'âmes armée")
@@ -785,3 +795,5 @@ class CombatAI:
         self.boss_in_fight = False
         self.fighter_templates = {}
         self.confusion_turns = 0
+        self.comte_id = None
+        self.comte_turns = 0
