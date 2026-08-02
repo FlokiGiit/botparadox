@@ -133,6 +133,28 @@ def check_los(gmap, c1, c2, blockers=None):
     return True
 
 
+def rotate_around(total, center, cell, quarter_clockwise):
+    """Case obtenue en faisant tourner `cell` autour de `center` de N quarts de
+    tour horaires (repris de rotateCellAroundCaster du Comte Harebourg). -1 si
+    hors grille. q1: (dx,dy)->(dy,-dx) ; q2: (-dx,-dy) ; q3: (-dy,dx)."""
+    q = quarter_clockwise % 4
+    cx, cy = cell_x(center), cell_y(center)
+    dx, dy = cell_x(cell) - cx, cell_y(cell) - cy
+    if q == 1:
+        rx, ry = dy, -dx
+    elif q == 2:
+        rx, ry = -dx, -dy
+    elif q == 3:
+        rx, ry = -dy, dx
+    else:
+        rx, ry = dx, dy
+    x, y = cx + rx, cy + ry
+    c = W * x + (W - 1) * y
+    if 0 <= c < total and cell_x(c) == x and cell_y(c) == y:
+        return c
+    return -1
+
+
 def valid_target_cells(gmap, center, rmin, rmax, needs_los, free_cell, occupied):
     """Cases où le sort peut être lancé depuis `center` : dans la portée
     [rmin, rmax], LdV dégagée si le sort l'exige, et occupée par une entité si

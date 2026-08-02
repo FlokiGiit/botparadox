@@ -1054,9 +1054,12 @@ def _assist_state():
                        "los": sp.los, "free_cell": sp.free_cell})
     spells.sort(key=lambda s: s["id"])
     cells = [{"w": g.walkable(i), "l": g.cells[i]["los"]} for i in range(len(g))]
+    turns = getattr(c, "confusion_turns", 0)
+    labels = {0: "aucune", 1: "90° horaire", 2: "180°", 3: "90° anti-horaire"}
     return {"active": True, "my_cell": me.cell if me else None,
             "my_pa": me.pa if me else 0, "my_pm": me.pm if me else 0,
             "enemies": sum(1 for f in fighters if f["enemy"]),
+            "confusion": {"turns": turns, "label": labels.get(turns, "aucune")},
             "fighters": fighters, "spells": spells, "cells": cells}
 
 
@@ -1076,10 +1079,27 @@ def _assist_valid(spell_id):
     if sp is None:
         return {"cells": []}
     occupied = {f.cell for f in c.fighters.values() if f.hp > 0}
-    cells = losrange.valid_target_cells(
+    # Cases où le sort ATTERRIT réellement (portée + LdV depuis ma position).
+    landings = losrange.valid_target_cells(
         g, me.cell, sp.range_min, sp.range_max, sp.los, sp.free_cell, occupied)
-    return {"center": me.cell, "spell": spell_id, "cells": cells,
-            "rmin": sp.range_min, "rmax": sp.range_max, "los": sp.los}
+    turns = getattr(c, "confusion_turns", 0)
+    total = len(g)
+    if turns:
+        # Confusion Harebourg : le serveur tourne la case cliquée de -turns
+        # autour de moi. Pour toucher E, il faut CLIQUER rotate(E, +turns).
+        pairs = []
+        for e in landings:
+            r = losrange.rotate_around(total, me.cell, e, turns)
+            if r >= 0:
+                pairs.append([r, e])
+        return {"center": me.cell, "spell": spell_id,
+                "cells": [p[0] for p in pairs], "pairs": pairs,
+                "rmin": sp.range_min, "rmax": sp.range_max, "los": sp.los,
+                "confusion": turns}
+    return {"center": me.cell, "spell": spell_id, "cells": landings,
+            "pairs": [[e, e] for e in landings],
+            "rmin": sp.range_min, "rmax": sp.range_max, "los": sp.los,
+            "confusion": 0}
 
 
 async def serve():

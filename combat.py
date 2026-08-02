@@ -237,6 +237,9 @@ class CombatAI:
         # id de combat -> template du monstre (lu dans le GM). Sert à marquer le
         # boss sur la grille de l'assistant de combat.
         self.fighter_templates = {}
+        # Confusion du Comte Harebourg : quarts de tour horaires appliqués à la
+        # visée (0 = aucune). L'assistant s'en sert pour compenser la rotation.
+        self.confusion_turns = 0
         self._turn_no = 0          # numéro de tour dans le combat courant
         self._soul_last_turn = -10  # tour du dernier lancer de Capture d'âmes
         self._load_catalog()
@@ -279,6 +282,27 @@ class CombatAI:
             # Mort d'un combattant.
             dead = msg.split(";")[2]
             self.fighters.pop(dead, None)
+
+        elif msg.startswith("cMK") and "otation" in msg:
+            self._read_confusion(msg)
+
+    def _read_confusion(self, msg):
+        """Comte Harebourg — Confusion : le serveur fait pivoter la case ciblée
+        autour du lanceur. On lit la rotation annoncée dans le chat pour que
+        l'assistant indique où CLIQUER (case déjà compensée). "90° Horaire" = 1
+        quart, "180°" = 2, "90° Anti-Horaire" = 3, "Aucune" = 0. Messages :
+        "[Confusion] Rotation actuelle : X" et "...rotation de <nom> passe à X"."""
+        if "otation actuelle" not in msg and "passe" not in msg:
+            return
+        low = msg.lower()
+        if "anti" in low:
+            self.confusion_turns = 3
+        elif "180" in low:
+            self.confusion_turns = 2
+        elif "90" in low:
+            self.confusion_turns = 1
+        elif "aucune" in low:
+            self.confusion_turns = 0
 
     def _load_catalog(self):
         try:
@@ -736,3 +760,4 @@ class CombatAI:
         # Nouveau combat : on ne sait pas encore si un boss est présent.
         self.boss_in_fight = False
         self.fighter_templates = {}
+        self.confusion_turns = 0

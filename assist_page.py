@@ -63,6 +63,9 @@ ASSIST_PAGE = r"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <div id="main">
   <div id="wrap"><canvas id="c" width="10" height="10"></canvas></div>
   <div id="info">
+    <div class="box" id="confbox" style="display:none;border-color:var(--boss)">
+      <h2 style="color:var(--boss)">⟳ Confusion (Comte Harebourg)</h2>
+      <div class="tip" id="confdet"></div></div>
     <div class="box"><h2>Toi</h2><div class="big" id="mypapm">— PA · — PM</div>
       <div class="sub" id="mycell"></div></div>
     <div class="box" id="spellbox"><h2>Sort sélectionné</h2>
@@ -104,9 +107,24 @@ function draw(){
     var s=screenXY(i),cx=s[0]+off,cy=s[1]+CH/2+1;
     diamond(ctx,cx,cy, cell.w?'#1b2130':'#141922', '#20252f');
   }
+  var pairs=(valid&&valid.pairs)||[];
+  var conf=valid&&valid.confusion;
+  // flèches clic -> atterrissage (uniquement si la rotation décale la case)
+  if(conf){
+    pairs.forEach(function(p){
+      if(p[0]===p[1])return;
+      var a=screenXY(p[0]),b=screenXY(p[1]);
+      var ax=a[0]+off,ay=a[1]+CH/2+1,bx=b[0]+off,by=b[1]+CH/2+1;
+      ctx.strokeStyle='rgba(227,179,65,.7)';ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.stroke();
+      // anneau sur la case d'atterrissage réelle
+      ctx.beginPath();ctx.arc(bx,by,4,0,7);ctx.strokeStyle='#e3b341';ctx.lineWidth=2;ctx.stroke();
+    });
+  }
+  // cases où CLIQUER (en vert)
   validSet.forEach(function(i){
     var s=screenXY(i),cx=s[0]+off,cy=s[1]+CH/2+1;
-    diamond(ctx,cx,cy,'rgba(63,185,80,.55)','#3fb950');
+    diamond(ctx,cx,cy,'rgba(63,185,80,.6)','#3fb950');
     ctx.fillStyle='#dff5e4';ctx.font='9px monospace';ctx.textAlign='center';
     ctx.fillText(i,cx,cy+3);
   });
@@ -154,6 +172,15 @@ function renderInfo(){
     return;
   }
   st.textContent='combat en cours';st.style.color='#3fb950';
+  // bannière confusion
+  var cb=document.getElementById('confbox'), conf=state.confusion;
+  if(conf&&conf.turns){
+    cb.style.display='';
+    document.getElementById('confdet').innerHTML=
+      'Rotation en cours : <b style="color:var(--boss)">'+conf.label+'</b>.<br>'
+      +'Le sort part décalé. Les cases <b class="ok">vertes</b> sont où <b>CLIQUER</b> '
+      +'(déjà compensé) ; l\'anneau doré = où ça atterrit vraiment.';
+  } else { cb.style.display='none'; }
   // combattants
   var order=(state.fighters||[]).slice().sort(function(a,b){
     return (a.me?0:a.boss?1:a.enemy?2:3)-(b.me?0:b.boss?1:b.enemy?2:3);});
@@ -193,20 +220,22 @@ function refreshValid(){
 
 function sigOf(d){
   if(!d||!d.active) return 'off';
-  return d.my_cell+'|'+d.my_pa+'|'+d.my_pm+'|'+(d.fighters||[]).map(function(f){
-    return f.cell+':'+f.hp;}).join(',');
+  return d.my_cell+'|'+d.my_pa+'|'+d.my_pm+'|'+((d.confusion||{}).turns||0)+'|'
+    +(d.fighters||[]).map(function(f){return f.cell+':'+f.hp;}).join(',');
 }
 var lastSig="";
 function poll(){
   fetch('/assist/state').then(function(r){return r.json();}).then(function(d){
     var prevCell=state?state.my_cell:null, wasActive=state&&state.active;
+    var prevConf=state&&state.confusion?state.confusion.turns:0;
     state=d;
     if(d.active&&d.cells&&d.cells.length!==sizedN) sizeCanvas(d.cells.length);
     renderSpells();
     var sig=sigOf(d);
     if(sig!==lastSig){                 // ne bouge que si quelque chose a changé
       lastSig=sig;
-      if(selected!==null && (d.my_cell!==prevCell || d.active!==wasActive)) refreshValid();
+      var nowConf=d.confusion?d.confusion.turns:0;
+      if(selected!==null && (d.my_cell!==prevCell || d.active!==wasActive || nowConf!==prevConf)) refreshValid();
       else { draw(); renderInfo(); }
     }
   }).catch(function(){});
