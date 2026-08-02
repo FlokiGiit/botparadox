@@ -1039,6 +1039,8 @@ def _assist_state():
             "me": f.id == c.char_id,
             "enemy": f.is_monster,
             "boss": bool(tpl and tpl in DUNGEON_BOSS_IDS),
+            "hp": f.hp,
+            "hpmax": f.pvmax,
         })
     spells = []
     seen = set()
@@ -1053,6 +1055,8 @@ def _assist_state():
     spells.sort(key=lambda s: s["id"])
     cells = [{"w": g.walkable(i), "l": g.cells[i]["los"]} for i in range(len(g))]
     return {"active": True, "my_cell": me.cell if me else None,
+            "my_pa": me.pa if me else 0, "my_pm": me.pm if me else 0,
+            "enemies": sum(1 for f in fighters if f["enemy"]),
             "fighters": fighters, "spells": spells, "cells": cells}
 
 
