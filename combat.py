@@ -547,23 +547,37 @@ class CombatAI:
     def _can_hit_nileza(self, from_cell, nileza):
         """True si taper ce Nileza depuis from_cell ne déclenche pas un OS.
 
-        Dist 1 (mêlée) : pas d'Ogavodra, mais interdit sous Liqueur.
-        Dist 2 : renvoi Molalité sur soi après swap → jamais.
-        Dist > 2 : OK seulement si aucun autre Nileza n'est collé à la cible
-        (sinon on atterrit dans le pack)."""
+        Uniquement en mêlée (dist 1) et hors Liqueur. À distance, Ogavodra
+        swap + Molalité (~700k) — même sur un Nileza « isolé ». Les logs du
+        Labo confirment que la frappe à PO est mortelle ; on ne tente plus."""
         d = losrange.distance(from_cell, nileza.cell)
         if d <= NILEZA_MELEE_DIST:
             return not self._liqueur_active()
-        if d <= NILEZA_MOLALITY_RADIUS:
+        return False
+
+    def _nileza_forbidden_cells(self, from_cell):
+        """Cases Nileza qu'on ne doit pas blesser depuis from_cell."""
+        return {n.cell for n in self._nilezas()
+                if not self._can_hit_nileza(from_cell, n)}
+
+    def _splash_hits_forbidden(self, cell, spell, forbidden):
+        """True si atterrir sur `cell` blesse un Nileza interdit (cible ou zone).
+
+        Bug réel (log 13:20) : Explosive mono sur escorte 298, zone rayon 2
+        → Nileza en 328 (dist 2) → Ogavodra. L'ancien code ne testait le
+        splash que pour les tirs « zone classés », pas pour le mono-cible."""
+        if cell in forbidden:
+            return True
+        radius = spell.zone_radius
+        if radius < 1 or not forbidden:
             return False
-        return self._nileza_adjacent_count(nileza) == 0
+        return any(losrange.distance(cell, fc) <= radius for fc in forbidden)
 
     def _hittable_enemies(self, from_cell):
         """Ennemis qu'on a le droit de viser depuis from_cell.
 
-        Escortes d'abord (pas de swap), puis Nileza isolés à distance sûre,
-        puis Nileza en mêlée hors Liqueur. Un Nileza dans un pack n'apparaît
-        pas : le bot attend qu'il s'écarte ou une fenêtre mêlée."""
+        Escortes d'abord (pas de swap), puis Nileza en mêlée hors Liqueur.
+        À distance on ne vise jamais un Nileza."""
         enemies = self._enemies()
         nilezas = [e for e in enemies if self._is_nileza(e)]
         if not nilezas:
@@ -571,16 +585,14 @@ class CombatAI:
 
         others = [e for e in enemies if not self._is_nileza(e)]
         safe_n = [n for n in nilezas if self._can_hit_nileza(from_cell, n)]
-        packed = [n for n in nilezas if self._nileza_adjacent_count(n) > 0]
-        if packed and not safe_n and not self._nileza_pack_warned:
+        if nilezas and not safe_n and not self._nileza_pack_warned:
             self._nileza_pack_warned = True
-            self.say("Nileza collés entre eux — je ne tape pas à distance "
-                     "(swap dans le pack) ; escortes d'abord, ou mêlée hors "
-                     "Liqueur, ou j'attends qu'un Nileza s'isole")
+            self.say("Nileza : pas de tir à distance (Ogavodra/Molalité) — "
+                     "escortes d'abord, mêlée hors Liqueur, ou j'attends")
 
         # Achève d'abord les plus bas PV dans chaque groupe.
         others.sort(key=lambda f: f.hp)
-        safe_n.sort(key=lambda f: (self._nileza_adjacent_count(f), f.hp))
+        safe_n.sort(key=lambda f: f.hp)
         return others + safe_n
 
     def _aim(self, spell, enemies, from_cell, occupied):
@@ -591,27 +603,25 @@ class CombatAI:
         ennemis. À défaut, on achève l'ennemi le plus bas en PV : un mob mort
         ne riposte pas, ce qui vaut mieux que d'étaler les dégâts.
 
-        Avec Nileza : `enemies` doit déjà être filtré par _hittable_enemies —
-        une zone qui toucherait un Nileza interdit (pack / dist 2) est rejetée."""
+        Avec Nileza : `enemies` est filtré, et toute atterrissage (zone ou
+        mono) dont le splash touche un Nileza interdit est rejetée."""
         landings = self._landing_cells(spell, from_cell, occupied)
         if not landings:
             return None
-        # Cibles Nileza interdites depuis cette case (pack ou Molalité).
-        forbidden = {e.cell for e in self._nilezas()
-                     if not self._can_hit_nileza(from_cell, e)}
+        forbidden = self._nileza_forbidden_cells(from_cell)
         if spell.zone_radius >= 1 and len(enemies) >= 2:
             for cell, hits in self.zone_cells_ranked(spell, enemies):
                 if cell not in landings:
                     continue
-                # Une zone qui couvre un Nileza interdit déclencherait quand
-                # même Ogavodra sur lui — on saute.
-                if any(losrange.distance(cell, fc) <= spell.zone_radius
-                       for fc in forbidden):
+                if self._splash_hits_forbidden(cell, spell, forbidden):
                     continue
                 return (spell, cell, hits)
         for enemy in enemies:   # déjà ordonnés par _hittable_enemies
-            if enemy.cell in landings and enemy.cell not in forbidden:
-                return (spell, enemy.cell, 1)
+            if enemy.cell not in landings:
+                continue
+            if self._splash_hits_forbidden(enemy.cell, spell, forbidden):
+                continue
+            return (spell, enemy.cell, 1)
         return None
 
     def _next_action(self, from_cell=None):
