@@ -69,6 +69,21 @@ MAX_CASTS_PER_TURN = 8
 SOUL_CAPTURE_SPELL = 413
 SOUL_CAPTURE_REFRESH = 2   # tours de validité du buff
 
+# ── Nileza (Laboratoire) — mécanique Cohobation du serveur 1.43 ──────────────
+# Source : Eternal/1.43/.../NilezaMechanics.java
+# Taper un Nileza à distance (>1 PO) déclenche Ogavodra : swap sur SA case,
+# puis Molalité (renvoi 200 % air dans un rayon 2 autour de sa nouvelle case).
+# Conséquences pour le bot :
+#   - distance 2 = suicide (après swap on est encore dans le rayon → on mange
+#     son propre renvoi) ;
+#   - Nileza collé à d'autres Nileza = atterrissage dans le pack → OS au tour
+#     suivant (Glace sèche / Fraction) ;
+#   - mêlée (dist 1) évite le swap, mais Liqueur de Fée Ling soigne/boost 2
+#     tours sur 3 (lancée tour 1 puis tous les 3 tours).
+NILEZA_TEMPLATE = 31071
+NILEZA_MELEE_DIST = 1
+NILEZA_MOLALITY_RADIUS = 2
+
 # ── Script de combat Kralamoure Géant ────────────────────────────────────────
 # Séquence fixe tour par tour, reconstituée depuis une capture réelle du combat
 # (placement toujours identique confirmé par le joueur). Un tour = une liste
@@ -243,6 +258,7 @@ class CombatAI:
         self._turn_no = 0          # numéro de tour dans le combat courant
         self._soul_last_turn = -10  # tour du dernier lancer de Capture d'âmes
         self._no_spell_warned = False   # sélection inadaptée déjà signalée
+        self._nileza_pack_warned = False  # pack multi-Nileza déjà signalé
         self._load_catalog()
 
     # ── lecture du flux ──────────────────────────────────────────────────────
@@ -452,33 +468,103 @@ class CombatAI:
             spell.los, spell.free_cell, occupied,
             placement=getattr(spell, "summon", False)))
 
+    def _is_nileza(self, fighter):
+        return self.fighter_templates.get(fighter.id) == NILEZA_TEMPLATE
+
+    def _nilezas(self):
+        return [f for f in self._enemies() if self._is_nileza(f)]
+
+    def _nileza_adjacent_count(self, nileza):
+        """Autres Nileza collés (dist 1) — atterrir là = pack mortel."""
+        return sum(
+            1 for o in self._nilezas()
+            if o.id != nileza.id
+            and losrange.distance(nileza.cell, o.cell) == 1)
+
+    def _liqueur_active(self):
+        """Liqueur de Fée Ling : active 2 tours sur 3 (tours 1-2, 4-5, …)."""
+        return self._turn_no % 3 != 0
+
+    def _can_hit_nileza(self, from_cell, nileza):
+        """True si taper ce Nileza depuis from_cell ne déclenche pas un OS.
+
+        Dist 1 (mêlée) : pas d'Ogavodra, mais interdit sous Liqueur.
+        Dist 2 : renvoi Molalité sur soi après swap → jamais.
+        Dist > 2 : OK seulement si aucun autre Nileza n'est collé à la cible
+        (sinon on atterrit dans le pack)."""
+        d = losrange.distance(from_cell, nileza.cell)
+        if d <= NILEZA_MELEE_DIST:
+            return not self._liqueur_active()
+        if d <= NILEZA_MOLALITY_RADIUS:
+            return False
+        return self._nileza_adjacent_count(nileza) == 0
+
+    def _hittable_enemies(self, from_cell):
+        """Ennemis qu'on a le droit de viser depuis from_cell.
+
+        Escortes d'abord (pas de swap), puis Nileza isolés à distance sûre,
+        puis Nileza en mêlée hors Liqueur. Un Nileza dans un pack n'apparaît
+        pas : le bot attend qu'il s'écarte ou une fenêtre mêlée."""
+        enemies = self._enemies()
+        nilezas = [e for e in enemies if self._is_nileza(e)]
+        if not nilezas:
+            return enemies
+
+        others = [e for e in enemies if not self._is_nileza(e)]
+        safe_n = [n for n in nilezas if self._can_hit_nileza(from_cell, n)]
+        packed = [n for n in nilezas if self._nileza_adjacent_count(n) > 0]
+        if packed and not safe_n and not self._nileza_pack_warned:
+            self._nileza_pack_warned = True
+            self.say("Nileza collés entre eux — je ne tape pas à distance "
+                     "(swap dans le pack) ; escortes d'abord, ou mêlée hors "
+                     "Liqueur, ou j'attends qu'un Nileza s'isole")
+
+        # Achève d'abord les plus bas PV dans chaque groupe.
+        others.sort(key=lambda f: f.hp)
+        safe_n.sort(key=lambda f: (self._nileza_adjacent_count(f), f.hp))
+        return others + safe_n
+
     def _aim(self, spell, enemies, from_cell, occupied):
         """(sort, case, ennemis touchés) pour ce sort depuis `from_cell`, ou
         None si rien de valide.
 
         La zone passe avant le mono-cible dès qu'elle touche au moins deux
         ennemis. À défaut, on achève l'ennemi le plus bas en PV : un mob mort
-        ne riposte pas, ce qui vaut mieux que d'étaler les dégâts."""
+        ne riposte pas, ce qui vaut mieux que d'étaler les dégâts.
+
+        Avec Nileza : `enemies` doit déjà être filtré par _hittable_enemies —
+        une zone qui toucherait un Nileza interdit (pack / dist 2) est rejetée."""
         landings = self._landing_cells(spell, from_cell, occupied)
         if not landings:
             return None
+        # Cibles Nileza interdites depuis cette case (pack ou Molalité).
+        forbidden = {e.cell for e in self._nilezas()
+                     if not self._can_hit_nileza(from_cell, e)}
         if spell.zone_radius >= 1 and len(enemies) >= 2:
             for cell, hits in self.zone_cells_ranked(spell, enemies):
-                if cell in landings:
-                    return (spell, cell, hits)      # déjà trié par couverture
-        for enemy in sorted(enemies, key=lambda f: f.hp):
-            if enemy.cell in landings:
+                if cell not in landings:
+                    continue
+                # Une zone qui couvre un Nileza interdit déclencherait quand
+                # même Ogavodra sur lui — on saute.
+                if any(losrange.distance(cell, fc) <= spell.zone_radius
+                       for fc in forbidden):
+                    continue
+                return (spell, cell, hits)
+        for enemy in enemies:   # déjà ordonnés par _hittable_enemies
+            if enemy.cell in landings and enemy.cell not in forbidden:
                 return (spell, enemy.cell, 1)
         return None
 
     def _next_action(self, from_cell=None):
         """Prochain sort à lancer, ou None. Aucun paquet n'est émis pour
         décider : tout est calculé sur la carte et l'état des combattants."""
-        enemies = self._enemies()
         me = self.fighters.get(self.char_id)
-        if not enemies or me is None or self.gmap is None:
+        if me is None or self.gmap is None:
             return None
         cell = me.cell if from_cell is None else from_cell
+        enemies = self._hittable_enemies(cell)
+        if not enemies:
+            return None
         occupied = {f.cell for f in self.fighters.values() if f.hp > 0}
         occupied.discard(me.cell)
         occupied.add(cell)
@@ -577,8 +663,9 @@ class CombatAI:
         contente de réduire la distance à l'ennemi le plus proche pour être en
         position au tour suivant.
 
-        Sans ça, un tour où rien n'était à portée était un tour passé : le bot
-        restait planté à distance et le combat n'avançait plus."""
+        Nileza : on ne se place JAMAIS à dist 2 d'un Nileza pour « se
+        rapprocher » (case suicide Molalité). Si le pack est collé, on vise
+        une case de mêlée (dist 1) hors Liqueur, sinon on attend."""
         me = self.fighters.get(self.char_id)
         enemies = self._enemies()
         if me is None or not enemies or self.gmap is None or me.pm <= 0:
@@ -592,28 +679,59 @@ class CombatAI:
         for cell, steps in dist.items():
             if cell == me.cell:
                 continue
+            # Case à dist 2 d'un Nileza = piège : on ne s'y arrête pas.
+            if any(self._is_nileza(n)
+                   and losrange.distance(cell, n.cell) == NILEZA_MOLALITY_RADIUS
+                   for n in enemies):
+                continue
             occ = (occupied - {me.cell}) | {cell}
+            hittable = self._hittable_enemies(cell)
+            if not hittable:
+                continue
             for rank, spell in enumerate(spells):
-                if self._aim(spell, enemies, cell, occ) is None:
+                if self._aim(spell, hittable, cell, occ) is None:
                     continue
-                # Le sort le plus prioritaire d'abord, et le moins de pas
-                # possible : on ne gaspille pas des PM pour rien.
                 key = (rank, steps)
                 if best is None or key < best[0]:
                     best = (key, cell)
                 break
         if best is None:
-            # Aucune case ne permet de lancer quoi que ce soit : on se rapproche
-            # de l'ennemi le plus proche, ce sera jouable au tour suivant.
-            target = min(enemies,
-                         key=lambda e: losrange.distance(me.cell, e.cell))
-            here = losrange.distance(me.cell, target.cell)
-            closer = [(losrange.distance(c, target.cell), steps, c)
-                      for c, steps in dist.items() if c != me.cell]
-            closer = [t for t in closer if t[0] < here]
-            if not closer:
+            # Aucune case de tir : se placer pour le prochain coup sûr.
+            nilezas = self._nilezas()
+            if nilezas and not self._liqueur_active():
+                # Fenêtre mêlée : coller un Nileza (pack ou pas — pas de swap).
+                target = min(nilezas, key=lambda n: (
+                    self._nileza_adjacent_count(n),
+                    losrange.distance(me.cell, n.cell)))
+                goal_dist = NILEZA_MELEE_DIST
+            elif nilezas:
+                # Sous Liqueur : viser un isolé à >2 PO, sinon rester loin.
+                isolated = [n for n in nilezas
+                            if self._nileza_adjacent_count(n) == 0]
+                if not isolated:
+                    return None
+                target = min(isolated,
+                             key=lambda n: losrange.distance(me.cell, n.cell))
+                goal_dist = NILEZA_MOLALITY_RADIUS + 1
+            else:
+                target = min(enemies,
+                             key=lambda e: losrange.distance(me.cell, e.cell))
+                goal_dist = 1
+            scored = []
+            for c, steps in dist.items():
+                if c == me.cell:
+                    continue
+                d = losrange.distance(c, target.cell)
+                if any(self._is_nileza(n)
+                       and losrange.distance(c, n.cell) == NILEZA_MOLALITY_RADIUS
+                       for n in enemies):
+                    continue
+                # Plus on est proche de la distance-cible, mieux c'est.
+                scored.append((abs(d - goal_dist), d if d >= goal_dist else 99,
+                               steps, c))
+            if not scored:
                 return None
-            best = (None, min(closer)[2])
+            best = (None, min(scored)[3])
         return best[1], self._path(came, best[1])
 
     @staticmethod
@@ -833,3 +951,4 @@ class CombatAI:
         self.confusion_turns = 0
         self.comte_id = None
         self.comte_turns = 0
+        self._nileza_pack_warned = False
