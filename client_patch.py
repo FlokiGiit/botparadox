@@ -18,7 +18,7 @@ import re
 from client_config import CLIENT_HTML
 
 ORIGIN = "http://127.0.0.1:8765"
-VERSION = 14   # a incrementer si le bloc ci-dessous change
+VERSION = 15   # a incrementer si le bloc ci-dessous change
 
 # L'overlay est un conteneur deplacable (barre du haut) et redimensionnable
 # (poignee en bas a gauche). La geometrie est memorisee dans localStorage, et
@@ -304,7 +304,13 @@ _OLD_RE = re.compile(
 
 
 def _relax_csp(html):
-    """Ajoute l'origine du bot aux directives CSP qui la bloqueraient."""
+    """Ajoute l'origine du bot aux directives CSP qui la bloqueraient.
+
+    Nexus ajoute parfois lui-même un `frame-src` (ex. srv.nexus-temporel.com).
+    Dans ce cas l'iframe ne tombe plus sous default-src, mais notre origine
+    n'y figure pas non plus : sans l'y ajouter explicitement, l'overlay reste
+    une coquille vide (barre visible, contenu noir).
+    """
     def add(directive, text):
         pat = re.compile(r"(" + directive + r"\s+)([^;\"]*)")
         m = pat.search(text)
@@ -314,11 +320,23 @@ def _relax_csp(html):
 
     html = add("connect-src", html)
     html = add("img-src", html)
-    # frame-src absent : sans lui l'iframe tombe sous default-src 'self'.
+    html = add("frame-src", html)
+    # frame-src totalement absent : sans lui l'iframe tombe sous default-src
+    # 'self' et est bloquée. On le crée alors avec notre seule origine.
     if "frame-src" not in html:
         html = re.sub(r'(content="\s*default-src[^"]*?)"',
                       r'\1 frame-src ' + ORIGIN + ';"', html, count=1)
     return html
+
+
+def _csp_allows_frame(html):
+    """Vrai si la CSP autorise clairement l'iframe du bot."""
+    m = re.search(r'frame-src\s+([^;"]*)', html)
+    if m:
+        return ORIGIN in m.group(1)
+    # Pas de frame-src : l'iframe tombe sous default-src, qui doit nous citer.
+    m = re.search(r'default-src\s+([^;"]*)', html)
+    return bool(m and ORIGIN in m.group(1))
 
 
 def patch_client(path=CLIENT_HTML, log=print):
@@ -330,8 +348,10 @@ def patch_client(path=CLIENT_HTML, log=print):
     with open(path, "r", encoding="utf-8") as f:
         original = f.read()
 
-    # Deja a la bonne version et CSP en place : rien a faire.
-    if f"LOOT_OVERLAY v{VERSION} START" in original and ORIGIN in original:
+    # Deja a la bonne version et CSP vraiment ouverte pour l'iframe : rien a faire.
+    if (f"LOOT_OVERLAY v{VERSION} START" in original
+            and ORIGIN in original
+            and _csp_allows_frame(original)):
         return False
 
     # Sauvegarde du fichier propre, une seule fois (avant tout patch).
