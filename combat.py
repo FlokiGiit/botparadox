@@ -58,9 +58,13 @@ DELAY_AFTER_MOVE = 1.1
 # Un tour ne doit jamais durer indéfiniment : au pire on passe.
 TURN_DEADLINE = 20.0
 
-# Garde-fou indépendant du décompte de PA : même si la comptabilité dérive,
-# on ne pourra jamais spammer les lancers.
-MAX_CASTS_PER_TURN = 8
+# Garde-fou anti-boucle si le décompte de PA dérive. Assez haut pour vider
+# 30+ PA (sorts à 2-3 PA) : l'ancien plafond de 8 laissait ~5–20 PA inutilisés
+# ("plafond de lancers atteint -> je passe") alors qu'il restait des cibles.
+MAX_CASTS_PER_TURN = 40
+# Nombre max de repositionnements par tour : un seul empêchait d'enchaîner
+# après un premier déplacement (Explosive maxée puis Magique hors portée).
+MAX_MOVES_PER_TURN = 3
 
 # Capture d'âmes : buff (2 PA, sur soi) qui active la capture des âmes des
 # créatures vaincues. L'effet ne dure que 2 tours -> on le RELANCE toutes les
@@ -777,22 +781,30 @@ class CombatAI:
                 await self._play_script()
                 return
             await self._cast_buffs(my_cell)
-            moved = False
+            moves = 0
             while asyncio.get_running_loop().time() < deadline and self.active:
                 action = self._next_action()
                 if action is None:
-                    # Rien à portée : on tente de se replacer, une seule fois
-                    # par tour (au-delà, on tournerait en rond).
-                    if moved or not self._setting("combat_move", True):
+                    # Rien à portée : se replacer puis réessayer. Plusieurs
+                    # fois si besoin (ex. Explosive épuisée, il faut un pas
+                    # pour enchaîner Magique) — plafonné pour éviter une boucle.
+                    if (moves >= MAX_MOVES_PER_TURN
+                            or not self._setting("combat_move", True)):
+                        if self.pa > 0:
+                            self.say(f"plus de cible joignable — {self.pa} PA "
+                                     f"restants, je passe")
                         break
-                    moved = True
                     if not await self._step_closer():
+                        if self.pa > 0:
+                            self.say(f"aucun déplacement utile — {self.pa} PA "
+                                     f"restants, je passe")
                         break
+                    moves += 1
                     continue
                 spell, cell, hits = action
                 zone = f", {hits} ennemis" if hits > 1 else ""
                 self.say(f"{spell.name} ({spell.id}) sur cellule {cell} "
-                         f"— {spell.pa} PA{zone}, {self.pa} PA restants")
+                         f"— {spell.pa} PA{zone}, {self.pa} PA avant lancer")
                 if not self.active:
                     break
                 self.s.to_server(f"GA300{spell.id};{cell}")
