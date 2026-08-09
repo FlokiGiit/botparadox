@@ -294,8 +294,11 @@ class Brain:
             self.combat.script = (
                 KRALAMOURE_SCRIPT
                 if self.stats.mode == "kralamoure" else None)
-            # Capture d'âmes : lancée en début de combat si la case est cochée.
+            # Prep auto / Capture : lancés en début de combat si cochés.
             self.combat.capture_souls = self.stats.capture_souls
+            self.combat.auto_maitrise = self.stats.auto_maitrise
+            self.combat.auto_tir = self.stats.auto_tir
+            self.combat.auto_coffre = self.stats.auto_coffre
             self.stats.fight_start()
             self.say("combat détecté -> récolte en veille")
             # Mode observateur : on regarde le combat sans y toucher — donc pas
@@ -338,18 +341,22 @@ class Brain:
             if dead.startswith("-"):
                 self.stats.kills += 1
 
+        prep_on = (self.stats.capture_souls or self.stats.auto_maitrise
+                   or self.stats.auto_tir or self.stats.auto_coffre)
         if (self.in_fight and AUTO_COMBAT and not self.combat_manual
                 and self.stats.enabled and self.stats.mode != "off"):
             self.combat.capture_only = False
             self.combat.on_packet(msg)
         elif (self.in_fight and self.stats.enabled
-              and self.stats.mode == "off" and self.stats.capture_souls):
-            # Observateur + Capture d'âmes cochée : le joueur joue son combat à
-            # la main, mais le bot lance quand même Capture d'âmes (413) en début
-            # de tour sur les combats de boss. Il ne fait RIEN d'autre (pas de
-            # burst, pas de "prêt", pas de Gt) — voir capture_only dans combat.py.
+              and self.stats.mode == "off" and prep_on):
+            # Observateur + cases prep/capture : le joueur joue à la main, le
+            # bot lance seulement les sorts cochés (Maîtrise, Tir, Coffre,
+            # Capture d'âmes sur boss). Pas de burst / prêt / Gt.
             self.combat.capture_only = True
-            self.combat.capture_souls = True
+            self.combat.capture_souls = self.stats.capture_souls
+            self.combat.auto_maitrise = self.stats.auto_maitrise
+            self.combat.auto_tir = self.stats.auto_tir
+            self.combat.auto_coffre = self.stats.auto_coffre
             self.combat.on_packet(msg)
 
         if msg.startswith("OAK"):

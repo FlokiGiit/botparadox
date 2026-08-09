@@ -37,6 +37,7 @@ public partial class MainWindow : Window
     const string ResumeUrl = "http://127.0.0.1:8765/resume";
     const string ModeUrl = "http://127.0.0.1:8765/mode/";
     const string CaptureUrl = "http://127.0.0.1:8765/capture/toggle";
+    const string PrepUrl = "http://127.0.0.1:8765/prep/toggle/";
 
     // Les icônes sont lues directement dans les ressources du client plutôt
     // que servies par HTTP : c'est le même disque, autant éviter le détour.
@@ -346,11 +347,23 @@ public partial class MainWindow : Window
     async void OnFarm(object? sender, RoutedEventArgs e) => await SetMode("farm");
     async void OnKralamoure(object? sender, RoutedEventArgs e) => await SetMode("kralamoure");
 
-    // Capture d'âmes : bascule côté bot. Click (et non IsChecked) pour ne se
-    // déclencher que sur action utilisateur, pas quand on synchronise l'état.
+    // Capture / prep auto : bascule côté bot. Click (et non IsChecked) pour
+    // ne se déclencher que sur action utilisateur, pas à la synchro d'état.
     async void OnSoulToggle(object? sender, RoutedEventArgs e)
     {
         try { await _http.GetStringAsync(CaptureUrl); } catch { }
+    }
+    async void OnPrepMaitrise(object? sender, RoutedEventArgs e)
+    {
+        try { await _http.GetStringAsync(PrepUrl + "maitrise"); } catch { }
+    }
+    async void OnPrepTir(object? sender, RoutedEventArgs e)
+    {
+        try { await _http.GetStringAsync(PrepUrl + "tir"); } catch { }
+    }
+    async void OnPrepCoffre(object? sender, RoutedEventArgs e)
+    {
+        try { await _http.GetStringAsync(PrepUrl + "coffre"); } catch { }
     }
 
     async Task SetMode(string mode)
@@ -496,6 +509,12 @@ public partial class MainWindow : Window
             mode == "kralamoure" ? "#4a9eff" : "#2a2f3a"));
         if (root.TryGetProperty("capture_souls", out var soul))
             SoulCap.IsChecked = soul.GetBoolean();
+        if (root.TryGetProperty("auto_maitrise", out var maitrise))
+            PrepMaitrise.IsChecked = maitrise.GetBoolean();
+        if (root.TryGetProperty("auto_tir", out var tir))
+            PrepTir.IsChecked = tir.GetBoolean();
+        if (root.TryGetProperty("auto_coffre", out var coffre))
+            PrepCoffre.IsChecked = coffre.GetBoolean();
 
         Kills.Text = root.GetProperty("kills").GetInt32().ToString("N0");
         KillsRate.Text = $"{root.GetProperty("kills_per_hour").GetDouble():0} / heure";

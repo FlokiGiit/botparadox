@@ -64,6 +64,15 @@
           <Border Width="1" Background="#262a33" Margin="6,2"/>
           <CheckBox x:Name="SoulCap" Click="OnSoulToggle" Content="Capture d'âmes"
                     Foreground="#e6e8eb" VerticalAlignment="Center"/>
+          <CheckBox x:Name="PrepMaitrise" Click="OnPrepMaitrise" Content="Maîtrise Arc"
+                    Foreground="#e6e8eb" VerticalAlignment="Center"
+                    ToolTip.Tip="Lance Maîtrise de l'Arc (180) au tour 1 — tous modes"/>
+          <CheckBox x:Name="PrepTir" Click="OnPrepTir" Content="Tir Puissant"
+                    Foreground="#e6e8eb" VerticalAlignment="Center"
+                    ToolTip.Tip="Lance Tir Puissant (166) au tour 1 — tous modes"/>
+          <CheckBox x:Name="PrepCoffre" Click="OnPrepCoffre" Content="Coffre animé"
+                    Foreground="#e6e8eb" VerticalAlignment="Center"
+                    ToolTip.Tip="Invoque le Coffre Animé (6019) au tour 1 — tous modes"/>
           <Border Width="1" Background="#262a33" Margin="6,2"/>
           <Ellipse x:Name="Dot" Width="10" Height="10" Fill="#e05561"
                    VerticalAlignment="Center"/>

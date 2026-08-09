@@ -79,6 +79,11 @@ HEAL_EXIT_RATIO = 0.80
 SOUL_CAPTURE_SPELL = 413
 SOUL_CAPTURE_REFRESH = 2   # tours de validité du buff
 
+# Prep auto (cases à cocher UI, hors onglet Farming) — tour 1 uniquement.
+SPELL_MAITRISE_ARC = 180
+SPELL_TIR_PUISSANT = 166
+SPELL_COFFRE_ANIME = 6019
+
 # ── Nileza (Laboratoire) — mécanique Cohobation du serveur 1.43 ──────────────
 # Source : Eternal/1.43/.../NilezaMechanics.java
 # Taper un Nileza à distance (>1 PO) déclenche Ogavodra : swap sur SA case,
@@ -256,8 +261,12 @@ class CombatAI:
         # Capture d'âmes (sort 413) : buff lancé une fois par combat, tôt (avant
         # de tuer le dernier mob) pour capturer les âmes des vaincus.
         self.capture_souls = False
-        # Observateur + capture : le bot ne joue pas le tour, il lance seulement
-        # Capture d'âmes (le joueur joue lui-même). Positionné par bot.py.
+        # Prep auto (cases UI) : Maîtrise / Tir / Coffre — tour 1, tous modes.
+        self.auto_maitrise = False
+        self.auto_tir = False
+        self.auto_coffre = False
+        # Observateur + prep/capture : le bot ne joue pas le tour, il lance
+        # seulement les sorts cochés (le joueur joue lui-même).
         self.capture_only = False
         # Un vrai boss de donjon est-il présent dans ce combat ? Renseigné en
         # lisant le paquet GM d'ouverture (template du mob vs boss_definitions).
@@ -697,22 +706,64 @@ class CombatAI:
         self.pa -= cost
         await asyncio.sleep(DELAY_BETWEEN_CASTS)
 
+    async def _cast_self_buff(self, spell_id, my_cell):
+        """Lance un buff sur soi si appris et assez de PA. True si lancé."""
+        sp = self._spell(spell_id)
+        if sp is None or my_cell is None or sp.pa > self.pa:
+            return False
+        if self.casts.get(spell_id, 0):
+            return False
+        self.say(f"buff {sp.name} ({spell_id}) sur soi — {self.pa} PA")
+        self.s.to_server(f"GA300{spell_id};{my_cell}")
+        self.pa -= sp.pa
+        self.casts[spell_id] = self.casts.get(spell_id, 0) + 1
+        await asyncio.sleep(self._cast_delay())
+        return True
+
+    async def _cast_coffre(self, my_cell):
+        """Pose le Coffre Animé (6019) sur une case libre à portée."""
+        sp = self._spell(SPELL_COFFRE_ANIME)
+        if sp is None or my_cell is None or sp.pa > self.pa:
+            return False
+        if self.casts.get(SPELL_COFFRE_ANIME, 0):
+            return False
+        occupied = {f.cell for f in self.fighters.values() if f.hp > 0}
+        landings = self._landing_cells(sp, my_cell, occupied)
+        if not landings:
+            self.say("coffre animé : aucune case libre à portée")
+            return False
+        # Case la plus proche (moins de risque de LdV / chemin bloqué).
+        cell = min(landings, key=lambda c: losrange.distance(my_cell, c))
+        self.say(f"coffre animé ({SPELL_COFFRE_ANIME}) sur {cell} — {self.pa} PA")
+        self.s.to_server(f"GA300{SPELL_COFFRE_ANIME};{cell}")
+        self.pa -= sp.pa
+        self.casts[SPELL_COFFRE_ANIME] = 1
+        await asyncio.sleep(self._cast_delay())
+        return True
+
+    async def _cast_auto_prep(self, my_cell):
+        """Cases UI (Maîtrise / Tir / Coffre) — uniquement au 1er tour.
+
+        Indépendant de l'onglet Farming : marche aussi en mode Observer."""
+        if self._turn_no != 1 or my_cell is None:
+            return
+        if self.auto_maitrise:
+            await self._cast_self_buff(SPELL_MAITRISE_ARC, my_cell)
+        if self.auto_tir:
+            await self._cast_self_buff(SPELL_TIR_PUISSANT, my_cell)
+        if self.auto_coffre:
+            await self._cast_coffre(my_cell)
+
     async def _cast_buffs(self, my_cell):
         """Buffs choisis dans l'onglet Farming, lancés sur soi en début de tour.
 
         Ils ne visent personne d'autre : la case est la nôtre, donc rien à
-        calculer. Un seul lancer par tour et par sort."""
+        calculer. Un seul lancer par tour et par sort. Ignore un sort déjà
+        lancé ce tour (ex. case Maîtrise/Tir cochée)."""
         for spell_id in self._setting("combat_buffs", []):
-            sp = self._spell(spell_id)
-            if sp is None or my_cell is None or sp.pa > self.pa:
-                continue
             if not self.active:
                 return
-            self.say(f"buff {sp.name} ({spell_id}) sur soi — {self.pa} PA")
-            self.s.to_server(f"GA300{spell_id};{my_cell}")
-            self.pa -= sp.pa
-            self.casts[spell_id] = self.casts.get(spell_id, 0) + 1
-            await asyncio.sleep(self._cast_delay())
+            await self._cast_self_buff(spell_id, my_cell)
 
     def _cast_delay(self):
         """Temps entre deux actions. Réglable dans l'onglet Farming : assez
@@ -827,11 +878,13 @@ class CombatAI:
 
         self._turn_no += 1
 
-        # Mode Observateur + Capture d'âmes : le bot ne joue pas le tour (le
-        # joueur s'en charge), il lance seulement Capture d'âmes puis rend la
-        # main — surtout PAS de Gt (c'est le joueur qui finit son tour).
+        # Mode Observateur + prep/capture : le bot ne joue pas le tour (le
+        # joueur s'en charge), il lance seulement les sorts cochés puis rend
+        # la main — surtout PAS de Gt (c'est le joueur qui finit son tour).
         if self.capture_only:
             try:
+                await asyncio.sleep(DELAY_BEFORE_TURN)
+                await self._cast_auto_prep(my_cell)
                 await self._maybe_cast_capture(my_cell)
             finally:
                 self.playing = False
@@ -839,6 +892,7 @@ class CombatAI:
 
         try:
             await asyncio.sleep(DELAY_BEFORE_TURN)
+            await self._cast_auto_prep(my_cell)
             await self._maybe_cast_capture(my_cell)
             # Script fixe (ex. Kralamoure) : on rejoue la séquence tour par tour
             # et on saute l'IA générique.
