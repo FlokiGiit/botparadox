@@ -94,10 +94,22 @@ TICK_INTERVAL = 2.0
 # millisecondes suffisent — 3 s rendaient l'enchainement poussif.
 ENGAGE_COOLDOWN = 1.0
 
-# Un engagement reste "en vol" pendant le trajet vers le groupe. Un simple
-# delai ne suffit pas : il expire pendant la marche et le bot relance une
-# attaque avant meme que le combat se soit ouvert.
-ENGAGE_TIMEOUT = 10.0
+# Duree accordee a un engagement, proportionnelle au trajet : marcher jusqu'au
+# groupe prend le temps que ca prend. Un delai fixe expirait au milieu de la
+# marche (un trajet de 22 pas etait abandonne alors qu'il se deroulait bien),
+# le groupe partait en quarantaine et le bot n'avait plus rien a attaquer.
+ENGAGE_TIMEOUT_BASE = 4.0
+ENGAGE_TIMEOUT_PER_STEP = 0.5
+
+# Quarantaine apres un engagement rate. Courte, contrairement au cooldown des
+# ressources : un groupe injoignable a l'instant redevient souvent joignable des
+# qu'il a bouge, et l'ecarter 2 minutes laissait le bot les bras croises devant
+# le seul groupe de la carte.
+ENGAGE_RETRY = 20.0
+
+# Trajet maximum pour aller agresser. Au-dela, le groupe a toutes les chances
+# d'avoir bouge avant l'arrivee, et on traverse la carte pour rien.
+MAX_ENGAGE_STEPS = 30
 
 # Delai au-dela duquel on considere la carte rétablie meme sans confirmation.
 # Le GDF ne vient qu'apres un GI du client : en faire une condition stricte
@@ -179,6 +191,12 @@ class Brain:
         self.skill_fails = {}        # skill -> nb de refus consécutifs
         self.last_resync = 0.0
         self.last_engage = 0.0
+        # Engagement en cours : cible et echeance propres, distincts de la
+        # recolte. Melanger les deux faisait porter a l'attaque le delai de la
+        # recolte (15 s) et la quarantaine des ressources (2 min).
+        self.engage_target = None
+        self.engage_deadline = 0.0
+        self.engage_failed = {}      # cellule -> instant du dernier echec
         self.client_in_fight = False   # le client a bascule en vue combat
         self.last_combat_packet = 0.0
         self.engaging_since = None   # attaque envoyee, combat pas encore ouvert
@@ -188,7 +206,7 @@ class Brain:
         # stats en premier : CombatAI appelle say() des sa construction
         # (reprise du catalogue), et say() ecrit dans la trace.
         self.stats = dashboard.stats()
-        self.combat = CombatAI(session, lambda t: self.say(t))
+        self.combat = CombatAI(session, lambda t: self.say(t), self.stats)
         # L'assistant de combat (dashboard /assist) lit l'état vif via ce brain.
         dashboard.set_brain(self)
         self.combat_manual = False   # le joueur a pris la main sur ce combat
@@ -266,6 +284,8 @@ class Brain:
             self.in_fight = True
             self.busy_since = None
             self.engaging_since = None   # l'engagement a abouti
+            self.engage_target = None
+            self.engage_failed.clear()
             self.combat_manual = False
             self.client_in_fight = False
             self.combat.reset(active=True)
@@ -302,6 +322,7 @@ class Brain:
             # On repart d'une liste vide, les GM qui suivent la reconstruisent.
             self.groups.clear()
             self.engaging_since = None
+            self.engage_target = None
             # Sortir d'un combat ne suffit pas : tant que le serveur n'a pas
             # renvoye le contenu de la carte, un deplacement part dans le
             # vide. On perdait 10 s d'abandon a chaque fois avant de
@@ -387,6 +408,9 @@ class Brain:
             # autre carte) restait ciblable. Le GM de la nouvelle carte, qui
             # suit aussitôt, reconstruit la liste.
             self.groups.clear()
+            self.engaging_since = None
+            self.engage_target = None
+            self.engage_failed.clear()
             # Filet de sécurité : recevoir une carte veut dire qu'on est bien
             # hors combat. Sans ça, un GE manqué figerait le bot définitivement.
             self.in_fight = False
@@ -688,20 +712,21 @@ class Brain:
             self.map_ready = True
             self.say("carte non confirmee -> je repars quand meme")
         if self.engaging_since is not None:
-            if now - self.engaging_since < ENGAGE_TIMEOUT:
+            if now < self.engage_deadline:
                 return
             self.say("engagement sans suite -> abandon")
-            if self.target is not None:
-                self.failed[self.target] = now
+            if self.engage_target is not None:
+                self.engage_failed[self.engage_target] = now
             self.engaging_since = None
+            self.engage_target = None
         targets = [c for c in self.groups
-                   if now - self.failed.get(c, 0) > FAILED_COOLDOWN]
+                   if now - self.engage_failed.get(c, 0) > ENGAGE_RETRY]
         if only_cell is not None:
             # Kralamoure : uniquement la case du boss, quoi qu'il y ait d'autre
             # (percepteur, mobs plus proches) sur la carte.
             targets = [c for c in targets if c == only_cell]
         if not targets:
-            if self.last_blocked != "vide":
+            if self.last_blocked != "vide-farm":
                 extra = f" — je cible {only_cell}" if only_cell is not None else ""
                 self.say(f"aucun groupe accessible ({len(self.groups)} sur la carte)"
                          f"{extra} — j'attends un repop")
@@ -709,26 +734,12 @@ class Brain:
             return
         self.last_blocked = None
 
+        # Les autres groupes sont des obstacles : marcher dessus déclencherait le
+        # mauvais combat, et le serveur tronque un chemin qui traverse quelqu'un.
+        # On les contourne, sauf celui qu'on vise.
         best = None
         for cell in targets:
-            if self.gmap.walkable(cell):
-                # Mob sur case marchable (extérieur) : on marche dessus, ce qui
-                # déclenche le combat.
-                path = self.gmap.find_path(self.pos, cell)
-            else:
-                # Mob sur case NON marchable (boss de donjon, décor) : on ne peut
-                # pas s'y rendre. On rejoint la case marchable adjacente la plus
-                # proche, puis on ajoute la case du mob comme pas d'attaque final
-                # — le serveur ouvre alors le combat, comme le vrai client.
-                path = None
-                for _, nb in self.gmap.neighbours(cell):
-                    if not self.gmap.walkable(nb):
-                        continue
-                    p = self.gmap.find_path(self.pos, nb)
-                    if p and (path is None or len(p) < len(path)):
-                        path = p
-                if path is not None:
-                    path = path + [cell]
+            path = self._engage_path(cell, set(targets) - {cell})
             # Un chemin sans déplacement veut dire qu'on est déjà sur la case :
             # le groupe n'y est plus, aucun combat ne se déclenchera.
             if path and len(path) > 1 and (best is None or len(path) < len(best[1])):
@@ -738,13 +749,53 @@ class Brain:
             return
 
         cell, path = best
-        self.target = cell
-        self.busy_since = now
+        steps = len(path) - 1
+        limit = getattr(self.stats, "engage_max_steps", None) or MAX_ENGAGE_STEPS
+        if steps > limit:
+            if self.last_blocked != "trop-loin":
+                self.say(f"groupe le plus proche à {steps} pas (max {limit}) "
+                         f"— j'attends un repop plus près")
+                self.last_blocked = "trop-loin"
+            return
+        self.engage_target = cell
         self.last_engage = now
         self.engaging_since = now
-        self.say(f"attaque du groupe en {cell} ({len(path) - 1} pas)")
-        if len(path) > 1:
-            self.s.to_server("GA001" + compress_path(path))
+        # Le trajet fait la durée : c'est ce qui évite d'abandonner une marche
+        # qui se déroule normalement.
+        self.engage_deadline = (now + ENGAGE_TIMEOUT_BASE
+                                + steps * ENGAGE_TIMEOUT_PER_STEP)
+        self.say(f"attaque du groupe en {cell} ({steps} pas)")
+        self.s.to_server("GA001" + compress_path(path))
+
+    def _engage_path(self, cell, blocked):
+        """Chemin pour aller agresser le groupe en `cell`, ou None.
+
+        Un mob sur case marchable s'agresse en marchant dessus. Sur case NON
+        marchable (boss de donjon, décor), on rejoint la case adjacente la plus
+        proche et on ajoute la case du mob comme dernier pas : le serveur ouvre
+        alors le combat, comme le vrai client.
+
+        Si le contournement des autres groupes ne donne rien, on retente sans :
+        mieux vaut un chemin imparfait que rester planté.
+        """
+        for avoid in (blocked, set()):
+            if self.gmap.walkable(cell):
+                path = self.gmap.find_path(self.pos, cell, avoid)
+            else:
+                path = None
+                for _, nb in self.gmap.neighbours(cell):
+                    if not self.gmap.walkable(nb) or nb in avoid:
+                        continue
+                    p = self.gmap.find_path(self.pos, nb, avoid)
+                    if p and (path is None or len(p) < len(path)):
+                        path = p
+                if path is not None:
+                    path = path + [cell]
+            if path and len(path) > 1:
+                return path
+            if not avoid:
+                break
+        return None
 
     def _maybe_act(self):
         # Mode observateur : le proxy relaie et compte le loot, mais le

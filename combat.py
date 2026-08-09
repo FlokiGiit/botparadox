@@ -6,12 +6,17 @@ Principe : ne rien coder en dur. Le serveur nous donne tout.
   ST   catalogue des sorts (coût en PA, portée, lancers par tour, catégorie)
   SL   niveau appris de chaque sort
   GTM  état des combattants (PV, PA, PM, cellule)
-  ZDC  "cette cellule est-elle une cible valide pour ce sort ?"
-  ZDM  la réponse, avec les dégâts réellement prévus sur cette cible
 
-Les dégâts de ZDM tiennent compte de l'équipement et des caractéristiques,
-là où ST ne donne que la valeur de base : on interroge donc le serveur plutôt
-que de tenter de recalculer sa formule.
+La visée est calculée EN LOCAL (module losrange, porté depuis le
+PathFinding.java de l'émulateur : portée et ligne de vue exactes). Le serveur
+n'est plus interrogé case par case : la version précédente envoyait une rafale
+de ZDC par lancer — une dizaine de paquets et jusqu'à 2 s d'attente chacun —
+pour obtenir les dégâts prévus. Ça rendait chaque tour lent et très bavard côté
+client, pour un gain nul dès lors que le joueur choisit lui-même ses sorts.
+
+L'ordre des sorts vient donc de l'onglet Farming (le joueur les classe), et non
+plus d'une estimation de dégâts. À défaut de choix, on prend les plus chers en
+PA d'abord.
 
 Les indices de champs de ST ont été validés en les comparant à la fiche de
 sort affichée par le client (Flèche Explosive : 4 PA, portée 1-8, 2 lancers
@@ -22,6 +27,7 @@ import asyncio
 import json
 import os
 
+import losrange
 from boss_ids import DUNGEON_BOSS_IDS
 
 # Découpage d'une entrée de ST.
@@ -51,33 +57,10 @@ DELAY_AFTER_MOVE = 1.1
 
 # Un tour ne doit jamais durer indéfiniment : au pire on passe.
 TURN_DEADLINE = 20.0
-PROBE_TIMEOUT = 2.0
 
 # Garde-fou indépendant du décompte de PA : même si la comptabilité dérive,
 # on ne pourra jamais spammer les lancers.
-MAX_CASTS_PER_TURN = 6
-
-# Nombre de cases de zone sondees par tour (les meilleures d'abord) avant
-# d'abandonner la zone pour du mono-cible. Assez pour trouver une case a
-# portee quand la toute meilleure ne l'est pas, sans multiplier les allers-
-# retours ZDC.
-ZONE_PROBE_LIMIT = 6
-
-# La valeur médiane observée dans les ZDC du vrai client.
-ZDC_MODE = 2
-
-# Sorts a privilegier, dans l'ordre. Ils passent avant les autres, mais ne les
-# excluent pas : Fleche Explosive est limitee a 2 lancers par tour pour 4 PA,
-# soit 8 PA sur les 19 disponibles — interdire le reste gaspillerait la moitie
-# du tour. On force donc l'ordre, pas le choix.
-#
-# Necessaire parce que ZDM ne renvoie que le degat sur la cible visee : l'IA
-# ne peut pas voir qu'un sort de zone en touche trois, et sous-estime donc
-# systematiquement les zones face a un mono-cible qui frappe plus fort.
-# Un numero absent du catalogue est simplement ignore : lister un sort
-# qu'on ne possede pas encore n'a aucun effet, et il sera pris en compte
-# automatiquement le jour ou le serveur l'annonce dans SL.
-PREFER_SPELLS = [179]   # Fleche Explosive : zone en cercle, rayon 2
+MAX_CASTS_PER_TURN = 8
 
 # Capture d'âmes : buff (2 PA, sur soi) qui active la capture des âmes des
 # créatures vaincues. L'effet ne dure que 2 tours -> on le RELANCE toutes les
@@ -85,22 +68,6 @@ PREFER_SPELLS = [179]   # Fleche Explosive : zone en cercle, rayon 2
 # le nombre de tours du combat.
 SOUL_CAPTURE_SPELL = 413
 SOUL_CAPTURE_REFRESH = 2   # tours de validité du buff
-
-# Sorts a utiliser EXCLUSIVEMENT, si et seulement si le personnage les
-# possede vraiment. Un sort absent du catalogue n'est jamais force : on
-# retombe alors sur le choix normal. Sans ce repli, lister un sort non
-# acquis ferait passer tous les tours sans rien lancer.
-EXCLUSIVE_SPELLS = []
-
-# Sorts lances sur soi en debut de tour, dans l'ordre. Un seul lancer par
-# tour chacun. Mettre les numeros des buffs souhaites, par exemple :
-#   180 = Maitrise de l'Arc (+dommages)   166 = Tir Puissant (+stats)
-# Laisser vide desactive la fonction.
-#
-# A peser : ces sorts coutent 3 PA chacun. Sur des combats gagnes en un
-# tour, 6 PA de buffs valent rarement les deux Fleches Explosives qu'ils
-# remplacent — c'est surtout utile si les combats durent.
-SELF_BUFFS = []
 
 # ── Script de combat Kralamoure Géant ────────────────────────────────────────
 # Séquence fixe tour par tour, reconstituée depuis une capture réelle du combat
@@ -190,6 +157,23 @@ class Spell:
         return f"<sort {self.id} niv{self.level} {self.pa}PA {self.range_min}-{self.range_max}>"
 
 
+def load_catalog():
+    """Catalogue mis en cache sur disque : (id, niveau) -> Spell.
+
+    Exposé hors de la classe pour que l'onglet Farming puisse proposer la liste
+    des sorts même jeu fermé — sinon il faudrait être connecté et en combat
+    pour pouvoir régler quoi que ce soit."""
+    out = {}
+    try:
+        with open(CATALOG_FILE, encoding="utf-8") as f:
+            for fields in json.load(f).values():
+                sp = Spell(fields)
+                out[(sp.id, sp.level)] = sp
+    except (OSError, ValueError, IndexError):
+        pass
+    return out
+
+
 class Fighter:
     """Un combattant tel que décrit par GTM : id;?;PV;PA;PM;cellule;;PVmax;%"""
 
@@ -214,19 +198,21 @@ class Fighter:
 
 
 class CombatAI:
-    def __init__(self, session, say):
+    def __init__(self, session, say, stats=None):
         self.s = session
         self.say = say
         self.char_id = None
+        # Réglages de l'onglet Farming (sorts choisis, buffs, vitesse...). Lus à
+        # chaque tour, donc un changement dans l'interface s'applique au combat
+        # suivant sans redémarrer. None = valeurs par défaut.
+        self.stats = stats
 
         self.catalog = {}      # (id, niveau) -> Spell
         self.levels = {}       # id -> niveau appris
         self.fighters = {}     # id -> Fighter
         self.pa = 0
+        self.pm = 0
         self.casts = {}        # id de sort -> nombre de lancers ce tour
-        self.probes = {}       # (cellule, sort) -> Future
-        self.zdm_cache = {}    # (cellule, sort) -> degat ZDM, vide a chaque tour
-        self._range_warned = {}  # sort impose -> deja signale hors portee ce tour
         self.playing = False
         self.active = False    # un combat est réellement en cours
         self.gmap = None       # carte courante, pour le calcul de zone
@@ -293,9 +279,6 @@ class CombatAI:
                 self.playing = True
                 asyncio.create_task(self._play_turn())
 
-        elif msg.startswith("ZDM|"):
-            self._resolve_probe(msg)
-
         elif msg.startswith("GA0;1;"):
             # Déplacement en combat : GA0;1;<id>;<chemin>. La dernière case du
             # chemin est l'arrivée. Sans ça, la position d'un combattant (dont la
@@ -337,16 +320,10 @@ class CombatAI:
             self.confusion_turns = 0
 
     def _load_catalog(self):
-        try:
-            with open(CATALOG_FILE, encoding="utf-8") as f:
-                for key, fields in json.load(f).items():
-                    sp = Spell(fields)
-                    self.catalog[(sp.id, sp.level)] = sp
-            if self.catalog:
-                self.say(f"catalogue de sorts repris du cache "
-                         f"({len(self.catalog)} entrees)")
-        except (OSError, ValueError, IndexError):
-            pass
+        self.catalog.update(load_catalog())
+        if self.catalog:
+            self.say(f"catalogue de sorts repris du cache "
+                     f"({len(self.catalog)} entrees)")
 
     def _save_catalog(self, raw):
         try:
@@ -370,108 +347,122 @@ class CombatAI:
         if raw:
             self._save_catalog(raw)
 
-    def _resolve_probe(self, msg):
-        # ZDM|<cellule>|<mode>|<sort>|<0 ou 1>[|<cible>;...;<dégâts>;...]
-        parts = msg.split("|")
-        if len(parts) < 5:
-            return
-        try:
-            key = (int(parts[1]), int(parts[3]))
-        except ValueError:
-            return
-        fut = self.probes.pop(key, None)
-        if fut is None or fut.done():
-            return
-
-        if parts[4] != "1" or len(parts) < 6:
-            fut.set_result(None)
-            return
-        # Les dégâts prévus commencent au 3e champ de la description de cible.
-        bits = parts[5].split(";")
-        try:
-            fut.set_result(float(bits[2]))
-        except (ValueError, IndexError):
-            fut.set_result(0.0)
-
     # ── décision ─────────────────────────────────────────────────────────────
 
-    def _my_spells(self):
-        out = []
-        # Exclusivite honoree seulement si le sort est reellement appris.
-        # Repli desactive a la demande : l'exclusivite s'applique meme si le
-        # sort n'est pas encore dans le catalogue. Tant qu'il n'y est pas,
-        # l'IA n'a donc aucun sort a lancer et passe ses tours.
-        # Pour retablir le repli, remettre les deux lignes ci-dessous :
-        #   owned = [i for i in EXCLUSIVE_SPELLS
-        #            if self.catalog.get((i, self.levels.get(i, 0)))]
-        #   allowed = owned if owned else None
-        owned = [i for i in EXCLUSIVE_SPELLS
-                 if self.catalog.get((i, self.levels.get(i, 0)))]
-        allowed = owned if owned else None
-        for spell_id, level in self.levels.items():
-            if allowed and spell_id not in allowed:
-                continue
-            sp = self.catalog.get((spell_id, level))
-            if sp and sp.offensive:
-                out.append(sp)
+    def _setting(self, name, default):
+        """Réglage de l'onglet Farming, ou la valeur par défaut."""
+        if self.stats is None:
+            return default
+        value = getattr(self.stats, name, None)
+        return default if value is None else value
+
+    def _spell(self, spell_id):
+        """Le sort au niveau réellement appris, ou None s'il ne l'est pas.
+
+        Repli sur le niveau 1 quand le catalogue ne contient pas l'entrée du
+        niveau exact : sinon un sort monté d'un cran disparaissait purement et
+        simplement de l'arsenal, sans le moindre message."""
+        level = self.levels.get(spell_id)
+        if level is None:
+            return None
+        return (self.catalog.get((spell_id, level))
+                or self.catalog.get((spell_id, 1)))
+
+    def _plan(self):
+        """Sorts à tenter, dans l'ordre de priorité.
+
+        La liste vient de l'onglet Farming : le joueur choisit ses sorts et leur
+        ordre, on le suit à la lettre. Sans choix, on prend tous les sorts
+        offensifs appris, les plus chers en PA d'abord — un coût élevé est le
+        seul indice de puissance dont on dispose sans interroger le serveur."""
+        chosen = self._setting("combat_spells", [])
+        if chosen:
+            out = [self._spell(sid) for sid in chosen]
+            return [sp for sp in out if sp is not None]
+        out = [sp for sp in (self._spell(sid) for sid in self.levels)
+               if sp is not None and sp.offensive]
+        out.sort(key=lambda s: -s.pa)
         return out
 
-    @staticmethod
-    def _priority(spell):
-        """Rang de preference : les sorts imposes d'abord, puis les plus chers."""
-        if spell.id in PREFER_SPELLS:
-            return (0, PREFER_SPELLS.index(spell.id))
-        return (1, -spell.pa)
+    def _castable(self, spell):
+        """Assez de PA et plafond de lancers du tour non atteint."""
+        return (spell.pa <= self.pa
+                and (spell.max_per_turn == 0
+                     or self.casts.get(spell.id, 0) < spell.max_per_turn))
 
-    def _zone_cells(self, centre, radius, gmap):
-        """Cellules couvertes par une zone circulaire, en pas diagonaux.
+    def _zone_hits(self, cell, radius, enemies):
+        return sum(1 for e in enemies
+                   if losrange.distance(cell, e.cell) <= radius)
 
-        On parcourt la grille au lieu de convertir en coordonnees : le pas
-        diagonal EST l'unite de distance de Dofus, donc un simple parcours
-        en largeur donne le rayon exact sans avoir a deriver de formule.
-        """
-        seen = {centre}
-        edge = [centre]
-        for _ in range(radius):
-            nxt = []
-            for cell in edge:
-                for delta in (14, 15, -14, -15):
-                    n = cell + delta
-                    if 0 <= n < len(gmap) and n not in seen:
-                        seen.add(n)
-                        nxt.append(n)
-            edge = nxt
-        return seen
+    def zone_cells_ranked(self, spell, enemies, gmap=None):
+        """Cases couvrant >=2 ennemis, triées par nombre d'ennemis touchés.
 
-    def zone_cells_ranked(self, spell, enemies, gmap):
-        """Cases couvrant >=2 ennemis, triees par nombre d'ennemis touches.
-
-        ZDM ne renvoie que le degat sur la cible visee : le serveur ne nous
-        dira jamais qu'une case vide en toucherait trois. On calcule donc le
-        classement nous-memes, mais on rend TOUTES les bonnes cases (best
-        d'abord) et non une seule : l'appelant sonde dans l'ordre et garde la
-        premiere que le serveur accepte. C'est ce qui corrige le cas ou la
-        meilleure case couvre 6 ennemis mais est hors de portee/LdV — le
-        serveur la refusait et on retombait sur un sort mono-cible.
-        """
-        if spell.zone_radius < 1 or len(enemies) < 2 or gmap is None:
+        Le rayon est mesuré avec la distance Dofus (|dx|+|dy| en repère de
+        grille, cf. losrange), la même que le serveur : l'ancienne version
+        additionnait des indices de cellule (+-14/+-15), ce qui débordait en
+        biais sur les bords de carte."""
+        if spell.zone_radius < 1 or len(enemies) < 2 or self.gmap is None:
             return []
-        occupied = {e.cell for e in enemies}
+        radius = spell.zone_radius
         if spell.free_cell:
-            # Toutes les cases a portee de zone d'au moins un ennemi.
-            candidates = set()
-            for e in enemies:
-                candidates |= self._zone_cells(e.cell, spell.zone_radius, gmap)
+            # Toute case dont la zone peut couvrir au moins un ennemi.
+            candidates = {c for c in range(len(self.gmap))
+                          if any(losrange.distance(c, e.cell) <= radius
+                                 for e in enemies)}
         else:
-            # Le sort exige une cible : on se limite aux cases occupees.
-            candidates = set(occupied)
-        scored = []
-        for cell in candidates:
-            hits = len(self._zone_cells(cell, spell.zone_radius, gmap) & occupied)
-            if hits >= 2:
-                scored.append((cell, hits))
+            # Le sort exige une cible : on se limite aux cases occupées.
+            candidates = {e.cell for e in enemies}
+        scored = [(c, self._zone_hits(c, radius, enemies)) for c in candidates]
+        scored = [t for t in scored if t[1] >= 2]
         scored.sort(key=lambda t: -t[1])
         return scored
+
+    def _landing_cells(self, spell, from_cell, occupied):
+        """Cases où ce sort peut réellement atterrir depuis `from_cell` :
+        portée, ligne de vue et règle « cellules libres » du sort, calculées en
+        local avec les mêmes règles que le serveur (losrange)."""
+        return set(losrange.valid_target_cells(
+            self.gmap, from_cell, spell.range_min, spell.range_max,
+            spell.los, spell.free_cell, occupied,
+            placement=getattr(spell, "summon", False)))
+
+    def _aim(self, spell, enemies, from_cell, occupied):
+        """(sort, case, ennemis touchés) pour ce sort depuis `from_cell`, ou
+        None si rien de valide.
+
+        La zone passe avant le mono-cible dès qu'elle touche au moins deux
+        ennemis. À défaut, on achève l'ennemi le plus bas en PV : un mob mort
+        ne riposte pas, ce qui vaut mieux que d'étaler les dégâts."""
+        landings = self._landing_cells(spell, from_cell, occupied)
+        if not landings:
+            return None
+        if spell.zone_radius >= 1 and len(enemies) >= 2:
+            for cell, hits in self.zone_cells_ranked(spell, enemies):
+                if cell in landings:
+                    return (spell, cell, hits)      # déjà trié par couverture
+        for enemy in sorted(enemies, key=lambda f: f.hp):
+            if enemy.cell in landings:
+                return (spell, enemy.cell, 1)
+        return None
+
+    def _next_action(self, from_cell=None):
+        """Prochain sort à lancer, ou None. Aucun paquet n'est émis pour
+        décider : tout est calculé sur la carte et l'état des combattants."""
+        enemies = self._enemies()
+        me = self.fighters.get(self.char_id)
+        if not enemies or me is None or self.gmap is None:
+            return None
+        cell = me.cell if from_cell is None else from_cell
+        occupied = {f.cell for f in self.fighters.values() if f.hp > 0}
+        occupied.discard(me.cell)
+        occupied.add(cell)
+        for spell in self._plan():
+            if not self._castable(spell):
+                continue
+            hit = self._aim(spell, enemies, cell, occupied)
+            if hit is not None:
+                return hit
+        return None
 
     def _enemies(self):
         return [f for f in self.fighters.values()
@@ -525,96 +516,100 @@ class CombatAI:
         self.pa -= cost
         await asyncio.sleep(DELAY_BETWEEN_CASTS)
 
-    async def _probe(self, cell, spell_id):
-        """Demande au serveur le degat prevu (ZDM) sur cette cellule pour ce
-        sort ; None si la cible est refusee. Le degat renvoye tient deja compte
-        des resistances de la cible. Mis en cache pour le tour : on sonde
-        desormais tous les sorts sur toutes les cibles, sans ce cache on
-        multiplierait les allers-retours ZDC."""
-        key = (cell, spell_id)
-        if key in self.zdm_cache:
-            return self.zdm_cache[key]
-        fut = asyncio.get_running_loop().create_future()
-        self.probes[key] = fut
-        self.s.to_server(f"ZDC|{cell}|{ZDC_MODE}|{spell_id}")
+    async def _cast_buffs(self, my_cell):
+        """Buffs choisis dans l'onglet Farming, lancés sur soi en début de tour.
+
+        Ils ne visent personne d'autre : la case est la nôtre, donc rien à
+        calculer. Un seul lancer par tour et par sort."""
+        for spell_id in self._setting("combat_buffs", []):
+            sp = self._spell(spell_id)
+            if sp is None or my_cell is None or sp.pa > self.pa:
+                continue
+            if not self.active:
+                return
+            self.say(f"buff {sp.name} ({spell_id}) sur soi — {self.pa} PA")
+            self.s.to_server(f"GA300{spell_id};{my_cell}")
+            self.pa -= sp.pa
+            self.casts[spell_id] = self.casts.get(spell_id, 0) + 1
+            await asyncio.sleep(self._cast_delay())
+
+    def _cast_delay(self):
+        """Temps entre deux actions. Réglable dans l'onglet Farming : assez
+        court pour enchaîner, jamais nul (un vrai client met au moins le temps
+        du clic)."""
         try:
-            result = await asyncio.wait_for(fut, PROBE_TIMEOUT)
-        except asyncio.TimeoutError:
-            self.probes.pop(key, None)
-            result = None
-        self.zdm_cache[key] = result
-        return result
+            delay = float(self._setting("combat_delay", DELAY_BETWEEN_CASTS))
+        except (TypeError, ValueError):
+            delay = DELAY_BETWEEN_CASTS
+        return max(0.1, min(2.0, delay))
 
-    async def _eval_spell(self, sp, enemies):
-        """Meilleur couple (sort, cellule, valeur) pour CE sort, ou None si
-        aucune cible valide (hors portee / LdV). Zone : valeur = degat ZDM x
-        ennemis couverts (le serveur ne compte que la cible visee). Mono-cible :
-        le degat ZDM tient deja compte des resistances de la cible."""
-        best = None
-        if sp.zone_radius >= 1 and len(enemies) >= 2:
-            for cell, hits in self.zone_cells_ranked(
-                    sp, enemies, self.gmap)[:ZONE_PROBE_LIMIT]:
-                damage = await self._probe(cell, sp.id)
-                if damage:
-                    best = (sp, cell, damage * hits)
-                    break   # case suivante = moins d'ennemis, inutile
-        for enemy in enemies:
-            damage = await self._probe(enemy.cell, sp.id)
-            if damage and (best is None or damage > best[2]):
-                best = (sp, enemy.cell, damage)
-        return best
+    def _approach(self):
+        """Case où se déplacer pour pouvoir frapper, et le chemin pour y aller.
 
-    async def _best_action(self):
-        """Sort a lancer : les sorts imposes (Fleche Explosive) d'abord tant
-        qu'une cible est a portee, puis remplissage au meilleur degat reel."""
+        Renvoie (case, chemin) ou None. On garde la case la moins coûteuse en PM
+        depuis laquelle le sort le plus prioritaire a une cible ; à défaut, on se
+        contente de réduire la distance à l'ennemi le plus proche pour être en
+        position au tour suivant.
+
+        Sans ça, un tour où rien n'était à portée était un tour passé : le bot
+        restait planté à distance et le combat n'avançait plus."""
+        me = self.fighters.get(self.char_id)
         enemies = self._enemies()
-        if not enemies:
+        if me is None or not enemies or self.gmap is None or me.pm <= 0:
             return None
+        blocked = {f.cell for f in self.fighters.values() if f.cell != me.cell}
+        came, dist = self._reachable(me.cell, me.pm, blocked)
+        occupied = {f.cell for f in self.fighters.values() if f.hp > 0}
+        spells = [sp for sp in self._plan() if self._castable(sp)]
 
-        castable = [
-            sp for sp in self._my_spells()
-            if sp.pa <= self.pa
-            and (sp.max_per_turn == 0
-                 or self.casts.get(sp.id, 0) < sp.max_per_turn)
-        ]
-
-        # 1) Sorts imposes : on les force tant qu'ils ont une cible valide et
-        # qu'on n'a pas atteint leur plafond de lancers. C'est ce qui garantit
-        # les 2 Fleches Explosives par tour, meme si un mono-cible taperait plus
-        # fort. Si aucune cible valide -> souvent hors portee : on le signale.
-        for sid in PREFER_SPELLS:
-            sp = next((s for s in castable if s.id == sid), None)
-            if sp is None:
-                continue
-            forced = await self._eval_spell(sp, enemies)
-            if forced:
-                return forced
-            if not self._range_warned.get(sid):
-                self.say(f"sort impose {sid} sans cible a portee "
-                         f"(rappel : portee {sp.range_min}-{sp.range_max}) "
-                         f"-> je remplis avec un autre sort")
-                self._range_warned[sid] = True
-
-        # 2) Remplissage : meilleure valeur reelle parmi le reste.
         best = None
-        for sp in castable:
-            if sp.id in PREFER_SPELLS:
+        for cell, steps in dist.items():
+            if cell == me.cell:
                 continue
-            cand = await self._eval_spell(sp, enemies)
-            if cand and (best is None or cand[2] > best[2]):
-                best = cand
-        return best
+            occ = (occupied - {me.cell}) | {cell}
+            for rank, spell in enumerate(spells):
+                if self._aim(spell, enemies, cell, occ) is None:
+                    continue
+                # Le sort le plus prioritaire d'abord, et le moins de pas
+                # possible : on ne gaspille pas des PM pour rien.
+                key = (rank, steps)
+                if best is None or key < best[0]:
+                    best = (key, cell)
+                break
+        if best is None:
+            # Aucune case ne permet de lancer quoi que ce soit : on se rapproche
+            # de l'ennemi le plus proche, ce sera jouable au tour suivant.
+            target = min(enemies,
+                         key=lambda e: losrange.distance(me.cell, e.cell))
+            here = losrange.distance(me.cell, target.cell)
+            closer = [(losrange.distance(c, target.cell), steps, c)
+                      for c, steps in dist.items() if c != me.cell]
+            closer = [t for t in closer if t[0] < here]
+            if not closer:
+                return None
+            best = (None, min(closer)[2])
+        return best[1], self._path(came, best[1])
+
+    @staticmethod
+    def _path(came, cell):
+        """Chemin reconstruit depuis l'arbre de parcours de _reachable."""
+        path = []
+        cur = cell
+        while cur is not None:
+            path.append(cur)
+            cur = came[cur]
+        path.reverse()
+        return path
 
     async def _play_turn(self):
         deadline = asyncio.get_running_loop().time() + TURN_DEADLINE
         self.casts.clear()
-        self.zdm_cache.clear()   # les degats prevus ne valent que pour ce tour
-        self._range_warned.clear()
         total = 0
         me = self.fighters.get(self.char_id)
         self.pa = me.pa if me else 0
+        self.pm = me.pm if me else 0
         my_cell = me.cell if me else None
-        self.say(f"tour de combat — {self.pa} PA, "
+        self.say(f"tour de combat — {self.pa} PA, {self.pm} PM, "
                  f"{len(self._enemies())} ennemi(s)")
 
         self._turn_no += 1
@@ -637,26 +632,23 @@ class CombatAI:
             if self.script is not None:
                 await self._play_script()
                 return
-            # Buffs sur soi d'abord : ils ne visent personne d'autre, donc
-            # pas de sondage necessaire, la case est la notre.
-            for spell_id in SELF_BUFFS:
-                sp = self.catalog.get((spell_id, self.levels.get(spell_id, 1)))
-                if sp is None or my_cell is None or sp.pa > self.pa:
-                    continue
-                if not self.active:
-                    break
-                self.say(f"buff {spell_id} sur soi ({self.pa} PA)")
-                self.s.to_server(f"GA300{spell_id};{my_cell}")
-                self.pa -= sp.pa
-                self.casts[spell_id] = self.casts.get(spell_id, 0) + 1
-                await asyncio.sleep(DELAY_BETWEEN_CASTS)
-            while asyncio.get_running_loop().time() < deadline:
-                action = await self._best_action()
+            await self._cast_buffs(my_cell)
+            moved = False
+            while asyncio.get_running_loop().time() < deadline and self.active:
+                action = self._next_action()
                 if action is None:
-                    break
-                spell, cell, damage = action
-                self.say(f"sort {spell.id} sur cellule {cell} "
-                         f"(~{damage:.0f} dégâts, {self.pa} PA restants)")
+                    # Rien à portée : on tente de se replacer, une seule fois
+                    # par tour (au-delà, on tournerait en rond).
+                    if moved or not self._setting("combat_move", True):
+                        break
+                    moved = True
+                    if not await self._step_closer():
+                        break
+                    continue
+                spell, cell, hits = action
+                zone = f", {hits} ennemis" if hits > 1 else ""
+                self.say(f"{spell.name} ({spell.id}) sur cellule {cell} "
+                         f"— {spell.pa} PA{zone}, {self.pa} PA restants")
                 if not self.active:
                     break
                 self.s.to_server(f"GA300{spell.id};{cell}")
@@ -670,7 +662,7 @@ class CombatAI:
                 if total >= MAX_CASTS_PER_TURN:
                     self.say("plafond de lancers atteint -> je passe")
                     break
-                await asyncio.sleep(DELAY_BETWEEN_CASTS)
+                await asyncio.sleep(self._cast_delay())
         except Exception as e:
             # En cas d'imprévu on passe le tour : un combat perdu lentement
             # vaut mieux qu'un bot qui s'entête et fait n'importe quoi.
@@ -723,10 +715,35 @@ class CombatAI:
         self.s.to_server("GA001" + encoded)
         await asyncio.sleep(DELAY_AFTER_MOVE)
 
+    async def _step_closer(self):
+        """Se replace pour pouvoir frapper. Vrai si on a bougé.
+
+        La position est mise à jour tout de suite, sans attendre l'accusé du
+        serveur : le sort qui suit est visé depuis la case d'arrivée."""
+        from gamemap import compress_path
+        plan = self._approach()
+        if plan is None:
+            self.say("rien à portée et nulle part où aller -> je passe")
+            return False
+        cell, path = plan
+        encoded = compress_path(path)
+        if not encoded:
+            return False
+        steps = len(path) - 1
+        me = self.fighters.get(self.char_id)
+        self.say(f"aucune cible à portée -> déplacement vers {cell} "
+                 f"({steps} pas, {self.pm} PM)")
+        await self._combat_move(encoded)
+        if me is not None:
+            me.cell = cell
+            me.pm = max(0, me.pm - steps)
+        self.pm = max(0, self.pm - steps)
+        return True
+
     def _reachable(self, start, pm, blocked):
-        """Cellules praticables atteignables en au plus `pm` pas, avec le
-        parent de chacune (pour reconstruire le chemin). BFS sur les vraies
-        cases marchables de la carte, en évitant les cases occupées."""
+        """Cellules praticables atteignables en au plus `pm` pas : renvoie
+        (parents, nombre de pas). BFS sur les vraies cases marchables de la
+        carte, en évitant les cases occupées."""
         came = {start: None}
         dist = {start: 0}
         queue = [start]
@@ -742,7 +759,7 @@ class CombatAI:
                 came[nb] = cur
                 dist[nb] = dist[cur] + 1
                 queue.append(nb)
-        return came
+        return came, dist
 
     async def _move_topright(self):
         """Va le plus loin possible vers le haut-droite (NE), sans dépasser les
@@ -756,7 +773,7 @@ class CombatAI:
         if me is None or self.gmap is None or me.pm <= 0:
             return
         blocked = {f.cell for f in self.fighters.values() if f.cell != me.cell}
-        came = self._reachable(me.cell, me.pm, blocked)
+        came, _ = self._reachable(me.cell, me.pm, blocked)
         # "Haut-droite" = colonne maximale, rangée minimale : score x - y.
         def score(cell):
             x, y = self.gmap.coords(cell)
@@ -765,13 +782,7 @@ class CombatAI:
         if best == me.cell:
             self.say("script: déjà au plus haut-droite atteignable")
             return
-        # Reconstruit le chemin case par case, puis l'encode au format serveur.
-        path = []
-        cur = best
-        while cur is not None:
-            path.append(cur)
-            cur = came[cur]
-        path.reverse()
+        path = self._path(came, best)
         encoded = compress_path(path)
         if not encoded:
             return
@@ -781,7 +792,6 @@ class CombatAI:
 
     def reset(self, active=False):
         self.fighters.clear()
-        self.probes.clear()
         self.casts.clear()
         self.playing = False
         self.active = active

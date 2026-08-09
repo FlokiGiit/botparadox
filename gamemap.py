@@ -229,12 +229,19 @@ class GameMap:
                 out.append((direction, n))
         return out
 
-    def find_path(self, start, goal):
-        """A* ; renvoie la liste des cellules de start à goal, ou None."""
+    def find_path(self, start, goal, blocked=None):
+        """A* ; renvoie la liste des cellules de start à goal, ou None.
+
+        `blocked` : cases occupées par un acteur, à contourner. Le serveur
+        tronque un déplacement qui traverse quelqu'un, donc un chemin qui les
+        ignore mène à un trajet que le personnage n'effectuera jamais. La case
+        d'arrivée reste autorisée : c'est justement celle du mob qu'on agresse.
+        """
         if start == goal:
             return [start]
         if not self.walkable(goal):
             return None
+        blocked = (blocked or set()) - {start, goal}
 
         def h(c):
             r1, c1 = rowcol(c)
@@ -254,7 +261,7 @@ class GameMap:
                     cur = came[cur]
                 return path[::-1]
             for _, nxt in self.neighbours(cur):
-                if not self.walkable(nxt):
+                if not self.walkable(nxt) or nxt in blocked:
                     continue
                 ng = g + 1
                 if ng < cost.get(nxt, 1 << 30):

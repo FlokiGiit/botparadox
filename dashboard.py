@@ -17,6 +17,7 @@ import os
 import time
 from collections import deque
 
+import combat
 import craft
 import gamedata
 from overlay_page import OVERLAY_PAGE
@@ -115,6 +116,99 @@ def harvest_jobs_list():
     return _HARVEST_JOBS
 
 
+def combat_spell_rows():
+    """Sorts connus, pour l'onglet Farming.
+
+    Source : le catalogue en cache sur disque, complété du niveau réellement
+    appris quand le jeu est connecté. Passer par le cache permet de régler ses
+    sorts jeu fermé — sinon il faudrait être en combat pour voir la liste.
+    """
+    ai = getattr(_brain, "combat", None) if _brain else None
+    levels = dict(getattr(ai, "levels", None) or {})
+    catalog = dict(getattr(ai, "catalog", None) or {}) or combat.load_catalog()
+    rows = []
+    for spell_id in {sid for sid, _ in catalog}:
+        level = levels.get(spell_id, 1)
+        sp = catalog.get((spell_id, level)) or catalog.get((spell_id, 1))
+        if sp is None:
+            continue
+        rows.append({
+            "id": sp.id, "name": sp.name, "pa": sp.pa,
+            "rmin": sp.range_min, "rmax": sp.range_max,
+            "zone": sp.zone_radius, "max": sp.max_per_turn,
+            "offensive": sp.offensive,
+            # "appris" = annoncé par le serveur (SL). Un sort non appris reste
+            # proposé, mais l'IA l'ignorera : autant le signaler.
+            "learned": spell_id in levels,
+            "level": levels.get(spell_id),
+        })
+    rows.sort(key=lambda r: (not r["offensive"], r["name"]))
+    return rows
+
+
+def combat_state():
+    """Réglages de combat + liste des sorts, pour l'onglet Farming."""
+    return {
+        "spells": combat_spell_rows(),
+        "selected": list(_stats.combat_spells),
+        "buffs": list(_stats.combat_buffs),
+        "move": _stats.combat_move,
+        "delay": _stats.combat_delay,
+        "engage_max_steps": _stats.engage_max_steps,
+        "capture_souls": _stats.capture_souls,
+    }
+
+
+def _reorder(ids, spell_id, direction):
+    """Déplace un sort d'un cran dans la liste de priorité."""
+    if spell_id not in ids:
+        return ids
+    i = ids.index(spell_id)
+    j = i + (1 if direction == "down" else -1)
+    if 0 <= j < len(ids):
+        ids[i], ids[j] = ids[j], ids[i]
+    return ids
+
+
+def combat_command(parts):
+    """Applique une commande /combat/... et renvoie l'état à jour.
+
+    parts : segments de l'URL après "combat" (ex. ["toggle", "179"]).
+    """
+    action = parts[0] if parts else "state"
+    if action == "toggle":
+        spell_id = int(parts[1])
+        if spell_id in _stats.combat_spells:
+            _stats.combat_spells.remove(spell_id)
+        else:
+            _stats.combat_spells.append(spell_id)
+        _stats.persist()
+    elif action == "buff":
+        spell_id = int(parts[1])
+        if spell_id in _stats.combat_buffs:
+            _stats.combat_buffs.remove(spell_id)
+        else:
+            _stats.combat_buffs.append(spell_id)
+        _stats.persist()
+    elif action == "order":
+        _reorder(_stats.combat_spells, int(parts[1]), parts[2])
+        _stats.persist()
+    elif action == "clear":
+        _stats.combat_spells = []
+        _stats.combat_buffs = []
+        _stats.persist()
+    elif action == "move":
+        _stats.combat_move = parts[1] == "1"
+        _stats.persist()
+    elif action == "delay":
+        _stats.combat_delay = max(0.1, min(2.0, float(parts[1]) / 100))
+        _stats.persist()
+    elif action == "steps":
+        _stats.engage_max_steps = max(1, min(60, int(parts[1])))
+        _stats.persist()
+    return combat_state()
+
+
 def build_fuse(stats, template_id):
     """Construit l'action de craft pour un item : retrouve un guid par
     ingredient dans le sac. Renvoie (payload, erreur)."""
@@ -187,6 +281,14 @@ class Stats:
         self.craft_targets = {}   # templateId -> quantite voulue
         self.harvest_jobs = set()  # metiers a recolter (vide = tous)
         self.capture_souls = False  # lancer "Capture d'âmes" (sort 413) en combat
+        # Reglages de combat de l'onglet Farming. combat_spells est ORDONNE :
+        # c'est l'ordre de priorite que l'IA suit a la lettre. Vide = auto
+        # (tous les sorts offensifs appris, les plus chers en PA d'abord).
+        self.combat_spells = []      # ids de sorts offensifs, dans l'ordre
+        self.combat_buffs = []       # ids de sorts lances sur soi au 1er tour
+        self.combat_move = True      # se rapprocher si aucune cible a portee
+        self.combat_delay = 0.3      # secondes entre deux actions
+        self.engage_max_steps = 30   # trajet max pour aller agresser
         self._restore()
         self.xp_start = None     # XP au premier paquet, pour mesurer le gain
         self.kills = 0
@@ -225,7 +327,12 @@ class Stats:
                                   for k, v in saved.get("craft", {}).items()}
             self.harvest_jobs = set(saved.get("harvest_jobs", []))
             self.capture_souls = bool(saved.get("capture_souls", False))
-        except (OSError, ValueError):
+            self.combat_spells = [int(i) for i in saved.get("combat_spells", [])]
+            self.combat_buffs = [int(i) for i in saved.get("combat_buffs", [])]
+            self.combat_move = bool(saved.get("combat_move", True))
+            self.combat_delay = float(saved.get("combat_delay", 0.3))
+            self.engage_max_steps = int(saved.get("engage_max_steps", 30))
+        except (OSError, ValueError, TypeError):
             pass
 
     def persist(self):
@@ -245,7 +352,12 @@ class Stats:
                            "craft": {str(k): v
                                      for k, v in self.craft_targets.items()},
                            "harvest_jobs": sorted(self.harvest_jobs),
-                           "capture_souls": self.capture_souls}, f)
+                           "capture_souls": self.capture_souls,
+                           "combat_spells": self.combat_spells,
+                           "combat_buffs": self.combat_buffs,
+                           "combat_move": self.combat_move,
+                           "combat_delay": self.combat_delay,
+                           "engage_max_steps": self.engage_max_steps}, f)
         except OSError:
             pass
 
@@ -647,6 +759,20 @@ td{padding:6px 8px;border-top:1px solid #262a33;font-variant-numeric:tabular-num
 .ev div{align-items:center}
 .harvest{color:#7dd3a0}.fight{color:#ffb454}.drop{color:#4a9eff;font-weight:600}.levelup{color:#c084fc;font-weight:600}.xp{color:#7dd3a0;font-weight:600}.kamas{color:#ffd166;font-weight:600}
 .off{color:#e05561}
+.sp{display:flex;align-items:center;gap:8px;padding:6px 8px;border-top:1px solid #262a33}
+.sp:first-child{border-top:0}
+.sp .nm{flex:1;font-weight:500}
+.sp .tag{font-size:10px;color:#7d8797;border:1px solid #262a33;border-radius:4px;padding:1px 5px}
+.sp .tag.z{color:#ffb454;border-color:#4a3a22}
+.sp button{background:#262a33;color:#9aa4b2;border:0;border-radius:5px;width:24px;height:22px;cursor:pointer;font:inherit;line-height:1}
+.sp button:hover{background:#4a9eff;color:#0d1117}
+.sp .rank{color:#4a9eff;font-weight:700;min-width:16px;font-variant-numeric:tabular-nums}
+.sp.na{opacity:.45}
+.box{background:#14161a;border:1px solid #262a33;border-radius:8px;max-height:260px;overflow-y:auto}
+.opt{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;font-size:13px}
+.opt label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.opt select,.opt input[type=number]{background:#14161a;color:#e6e8eb;border:1px solid #262a33;border-radius:6px;padding:4px 6px;font:inherit}
+.hint{font-size:12px;color:#5f6875;padding:10px 8px}
 </style></head><body>
 <h1>Bot Paradox <span id="live" class="off">— hors ligne</span>
   <a href="/assist" target="_blank" style="float:right;font-size:12px;
@@ -674,6 +800,35 @@ td{padding:6px 8px;border-top:1px solid #262a33;font-variant-numeric:tabular-num
   <div class="card"><div class="k">Session</div><div class="v" id="u">0:00</div><div class="sub" id="map"></div></div>
   <div class="card"><div class="k">Niveau</div><div class="v" id="lvl">—</div>
     <div class="bar"><i id="xb" style="width:0"></i></div><div class="sub" id="xt"></div></div>
+</div>
+<div class="card farmOnly" id="combatCard" style="margin-bottom:12px">
+  <div class="k" style="margin-bottom:10px">Sorts de combat
+    <span class="sub" style="text-transform:none;letter-spacing:0">l'ordre est
+    la priorité : le premier sort qui a une cible valide est lancé</span></div>
+  <div class="cols">
+    <div><div class="k" style="margin-bottom:6px">Utilisés</div>
+      <div class="box" id="spSel"></div></div>
+    <div><div class="k" style="margin-bottom:6px">Disponibles</div>
+      <div class="box" id="spAll"></div></div>
+  </div>
+  <div class="k" style="margin:14px 0 6px">Buffs lancés sur soi en début de tour</div>
+  <div class="box" id="spBuff"></div>
+  <div class="opt">
+    <label><input type="checkbox" id="cMove" onchange="setMove()">
+      Se rapprocher si aucune cible n'est à portée</label>
+    <label>Délai entre actions
+      <select id="cDelay" onchange="setDelay()">
+        <option value="15">0,15 s — rapide</option>
+        <option value="30">0,30 s — normal</option>
+        <option value="60">0,60 s — prudent</option>
+      </select></label>
+    <label>Trajet max pour agresser
+      <input type="number" id="cSteps" min="1" max="60" onchange="setSteps()"
+             style="width:64px"> pas</label>
+    <button onclick="clearSpells()" style="background:#262a33;color:#9aa4b2;
+      border:0;border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit">
+      Tout réinitialiser</button>
+  </div>
 </div>
 <div class="card" id="jobsCard" style="margin-bottom:12px;display:none">
   <div class="k" style="margin-bottom:8px">Métiers</div><div id="jobs"></div></div>
@@ -736,6 +891,69 @@ async function tick(){
 }
 async function setMode(m){ try{ await fetch('/mode/'+m); tick(); }catch(e){} }
 async function toggleSoul(){ try{ await fetch('/capture/toggle'); tick(); }catch(e){} }
+
+// ── sorts de combat ──
+// Le panneau ne se redessine qu'au chargement et après une action : le
+// rafraîchissement des compteurs (1,5 s) ne doit pas voler le focus d'un champ
+// ni faire clignoter la liste.
+let combat=null;
+const tags=s=>`<span class="tag">${s.pa} PA</span>`
+  +`<span class="tag">${s.rmin}-${s.rmax}</span>`
+  +(s.zone?`<span class="tag z">zone ${s.zone}</span>`:'')
+  +(s.max?`<span class="tag">${s.max}/tour</span>`:'');
+async function combatFetch(url){
+  try{ combat=await (await fetch(url)).json(); paintCombat(); }catch(e){}
+}
+function paintCombat(){
+  if(!combat) return;
+  const by={}; combat.spells.forEach(s=>by[s.id]=s);
+  const sel=combat.selected.map(id=>by[id]).filter(Boolean);
+  document.getElementById('spSel').innerHTML = sel.length
+    ? sel.map((s,i)=>`<div class="sp ${s.learned?'':'na'}">`
+        +`<span class="rank">${i+1}</span><span class="nm">${s.name}`
+        +(s.learned?'':' <span class="sub">non appris</span>')+`</span>${tags(s)}`
+        +`<button onclick="order(${s.id},'up')" title="monter">&#9650;</button>`
+        +`<button onclick="order(${s.id},'down')" title="descendre">&#9660;</button>`
+        +`<button onclick="toggleSpell(${s.id})" title="retirer">&#10005;</button>`
+        +`</div>`).join('')
+    : '<div class="hint">Aucun sort choisi : le bot utilise tous les sorts '
+      +'offensifs appris, les plus chers en PA d\\'abord.</div>';
+  const rest=combat.spells.filter(s=>!combat.selected.includes(s.id));
+  document.getElementById('spAll').innerHTML = rest.length
+    ? rest.map(s=>`<div class="sp ${s.learned?'':'na'}">`
+        +`<span class="nm">${s.name}`
+        +(s.learned?'':' <span class="sub">non appris</span>')+`</span>${tags(s)}`
+        +`<button onclick="toggleSpell(${s.id})" title="ajouter">+</button>`
+        +`</div>`).join('')
+    : '<div class="hint">catalogue de sorts vide — connecte-toi une fois en '
+      +'combat pour que le serveur l\\'envoie.</div>';
+  document.getElementById('spBuff').innerHTML = combat.spells.length
+    ? combat.spells.map(s=>{
+        const on=combat.buffs.includes(s.id);
+        return `<div class="sp ${s.learned?'':'na'}">`
+          +`<label class="nm" style="cursor:pointer;font-weight:500">`
+          +`<input type="checkbox" ${on?'checked':''} `
+          +`onchange="toggleBuff(${s.id})"> ${s.name}</label>${tags(s)}</div>`;
+      }).join('')
+    : '<div class="hint">aucun sort connu</div>';
+  document.getElementById('cMove').checked=!!combat.move;
+  document.getElementById('cSteps').value=combat.engage_max_steps;
+  const d=document.getElementById('cDelay');
+  d.value=String(Math.round(combat.delay*100));
+  if(!d.value||!d.selectedOptions.length) d.value='30';
+}
+const toggleSpell=id=>combatFetch('/combat/toggle/'+id);
+const toggleBuff=id=>combatFetch('/combat/buff/'+id);
+const order=(id,d)=>combatFetch('/combat/order/'+id+'/'+d);
+const clearSpells=()=>combatFetch('/combat/clear');
+const setMove=()=>combatFetch('/combat/move/'
+  +(document.getElementById('cMove').checked?1:0));
+const setDelay=()=>combatFetch('/combat/delay/'
+  +document.getElementById('cDelay').value);
+const setSteps=()=>combatFetch('/combat/steps/'
+  +document.getElementById('cSteps').value);
+
+combatFetch('/combat');
 tick();setInterval(tick,1500);
 </script></body></html>"""
 
@@ -766,6 +984,17 @@ async def _handle(reader, writer):
             _stats.event("info", "capture d'âmes " +
                          ("activée" if _stats.capture_souls else "désactivée"))
             body = json.dumps({"capture_souls": _stats.capture_souls}).encode()
+            writer.write(_headers("application/json", len(body)) + body)
+            await writer.drain()
+            return
+
+        if path.startswith("/combat"):
+            parts = path.split("?")[0].strip("/").split("/")[1:]
+            try:
+                state = combat_command(parts)
+            except (IndexError, ValueError):
+                state = combat_state()
+            body = json.dumps(state).encode()
             writer.write(_headers("application/json", len(body)) + body)
             await writer.drain()
             return
