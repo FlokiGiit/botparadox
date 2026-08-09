@@ -1,0 +1,159 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:ui"
+        x:Class="ui.SpellsWindow"
+        Title="Sorts de combat" Width="760" Height="700"
+        WindowStartupLocation="CenterOwner"
+        Background="#14161a" MinWidth="560" MinHeight="420">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.k">
+      <Setter Property="Foreground" Value="#7d8797"/>
+      <Setter Property="FontSize" Value="11"/>
+    </Style>
+    <Style Selector="TextBlock.sub">
+      <Setter Property="Foreground" Value="#7d8797"/>
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="#1c1f26"/>
+      <Setter Property="BorderBrush" Value="#262a33"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="10"/>
+      <Setter Property="Padding" Value="14"/>
+    </Style>
+    <Style Selector="Button">
+      <Setter Property="Background" Value="#2a2f3a"/>
+      <Setter Property="Foreground" Value="#e6e8eb"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="Padding" Value="10,6"/>
+    </Style>
+    <Style Selector="Button.tiny">
+      <Setter Property="Padding" Value="7,2"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="MinWidth" Value="0"/>
+    </Style>
+  </Window.Styles>
+
+  <DockPanel Margin="16">
+
+    <!-- l'ordre EST la priorité : on l'annonce avant tout le reste, c'est la
+         seule chose que le joueur doit comprendre pour s'en servir -->
+    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+      <TextBlock Classes="k" Text="PRIORITÉ DES SORTS"/>
+      <TextBlock Classes="sub" TextWrapping="Wrap" Margin="0,4,0,0"
+                 Text="Le premier sort de la liste qui a une cible valide est lancé. Le bot enchaîne tant qu'il lui reste des PA."/>
+      <TextBlock x:Name="Warn" Foreground="#ffb454" FontSize="12"
+                 TextWrapping="Wrap" Margin="0,8,0,0" IsVisible="False"/>
+    </StackPanel>
+
+    <!-- options tactiques -->
+    <Border DockPanel.Dock="Bottom" Classes="card" Margin="0,12,0,0">
+      <StackPanel Spacing="10">
+        <CheckBox x:Name="Move" Click="OnMove" Foreground="#e6e8eb"
+                  Content="Se rapprocher quand aucune cible n'est à portée"/>
+        <Grid ColumnDefinitions="Auto,*,Auto">
+          <TextBlock Classes="sub" Text="Délai entre deux actions"
+                     VerticalAlignment="Center" Width="190"/>
+          <Slider x:Name="Delay" Grid.Column="1" Minimum="10" Maximum="200"
+                  TickFrequency="10" IsSnapToTickEnabled="True"
+                  VerticalAlignment="Center" Margin="8,0"/>
+          <TextBlock x:Name="DelayText" Grid.Column="2" Classes="sub" Width="60"
+                     VerticalAlignment="Center" TextAlignment="Right"/>
+        </Grid>
+        <Grid ColumnDefinitions="Auto,*,Auto">
+          <TextBlock Classes="sub" Text="Trajet max pour aller agresser"
+                     VerticalAlignment="Center" Width="190"/>
+          <Slider x:Name="Steps" Grid.Column="1" Minimum="1" Maximum="60"
+                  TickFrequency="1" IsSnapToTickEnabled="True"
+                  VerticalAlignment="Center" Margin="8,0"/>
+          <TextBlock x:Name="StepsText" Grid.Column="2" Classes="sub" Width="60"
+                     VerticalAlignment="Center" TextAlignment="Right"/>
+        </Grid>
+      </StackPanel>
+    </Border>
+
+    <Grid ColumnDefinitions="*,12,*">
+
+      <!-- à gauche ce que le bot fera, à droite ce qu'on peut lui ajouter.
+           L'ordre de priorité est le cœur du réglage : il prend la plus grande
+           part, sinon la liste se retrouvait tronquée dès trois sorts. -->
+      <Grid Grid.Column="0" RowDefinitions="2*,*">
+        <Border Classes="card">
+          <DockPanel>
+            <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+              <TextBlock Classes="k" Text="SORTS UTILISÉS" VerticalAlignment="Center"/>
+              <Button Grid.Column="1" Classes="tiny" Click="OnClear" Content="Tout vider"/>
+            </Grid>
+            <TextBlock x:Name="EmptyPick" DockPanel.Dock="Top" Classes="sub"
+                       TextWrapping="Wrap" IsVisible="False"
+                       Text="Aucun sort choisi : le bot prend automatiquement les sorts offensifs appris, les plus coûteux en PA d'abord."/>
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+              <ItemsControl x:Name="Picked">
+                <ItemsControl.ItemTemplate><DataTemplate x:DataType="local:PickRow">
+                  <Border Background="#232833" CornerRadius="6" Padding="8,6" Margin="0,0,0,6">
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                      <TextBlock Text="{Binding Rank}" Foreground="#4a9eff"
+                                 FontWeight="Bold" Width="22" VerticalAlignment="Center"/>
+                      <StackPanel Grid.Column="1">
+                        <TextBlock Text="{Binding Name}" Foreground="{Binding Colour}"
+                                   TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding Detail}" Classes="sub"
+                                   TextTrimming="CharacterEllipsis"/>
+                      </StackPanel>
+                      <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
+                        <Button Classes="tiny" Content="↑" Command="{Binding Up}"/>
+                        <Button Classes="tiny" Content="↓" Command="{Binding Down}"/>
+                        <Button Classes="tiny" Content="✕" Command="{Binding Remove}"/>
+                      </StackPanel>
+                    </Grid>
+                  </Border>
+                </DataTemplate></ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </DockPanel>
+        </Border>
+
+        <Border Grid.Row="1" Classes="card" Margin="0,12,0,0">
+          <DockPanel>
+            <TextBlock DockPanel.Dock="Top" Classes="k" Margin="0,0,0,8"
+                       Text="LANCÉS SUR SOI AU 1ᵉʳ TOUR"/>
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+              <ItemsControl x:Name="Buffs">
+                <ItemsControl.ItemTemplate><DataTemplate x:DataType="local:BuffRow">
+                  <CheckBox IsChecked="{Binding On, Mode=OneWay}"
+                            Command="{Binding Toggle}" Foreground="{Binding Colour}"
+                            Content="{Binding Name}" Margin="0,0,0,2"/>
+                </DataTemplate></ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </DockPanel>
+        </Border>
+      </Grid>
+
+      <Border Grid.Column="2" Classes="card">
+        <DockPanel>
+          <TextBlock DockPanel.Dock="Top" Classes="k" Text="SORTS DISPONIBLES"
+                     Margin="0,0,0,8"/>
+          <TextBlock x:Name="EmptyAvail" DockPanel.Dock="Top" Classes="sub"
+                     TextWrapping="Wrap" IsVisible="False"
+                     Text="Aucun sort connu. Connecte-toi et entre en combat une fois : le serveur envoie alors la liste, qui est ensuite mémorisée."/>
+          <ScrollViewer>
+            <ItemsControl x:Name="Available">
+              <ItemsControl.ItemTemplate><DataTemplate x:DataType="local:AvailRow">
+                <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,6">
+                  <StackPanel>
+                    <TextBlock Text="{Binding Name}" Foreground="{Binding Colour}"/>
+                    <TextBlock Text="{Binding Detail}" Classes="sub"/>
+                  </StackPanel>
+                  <Button Grid.Column="1" Classes="tiny" Content="+"
+                          Command="{Binding Add}" VerticalAlignment="Center"/>
+                </Grid>
+              </DataTemplate></ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
+        </DockPanel>
+      </Border>
+    </Grid>
+  </DockPanel>
+</Window>

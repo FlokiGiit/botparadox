@@ -126,8 +126,13 @@ def combat_spell_rows():
     ai = getattr(_brain, "combat", None) if _brain else None
     levels = dict(getattr(ai, "levels", None) or {})
     catalog = dict(getattr(ai, "catalog", None) or {}) or combat.load_catalog()
+    # Dès que le serveur a annoncé les sorts du personnage connecté (SL), on s'y
+    # tient : le catalogue sur disque peut contenir ceux d'une autre classe,
+    # jouée sur cette machine avant. Sans ce filtre l'onglet Farming proposait
+    # des sorts que le personnage ne possède pas.
+    known = {sid for sid, _ in catalog}
     rows = []
-    for spell_id in {sid for sid, _ in catalog}:
+    for spell_id in (set(levels) & known) if levels else known:
         level = levels.get(spell_id, 1)
         sp = catalog.get((spell_id, level)) or catalog.get((spell_id, 1))
         if sp is None:
@@ -148,8 +153,12 @@ def combat_spell_rows():
 
 def combat_state():
     """Réglages de combat + liste des sorts, pour l'onglet Farming."""
+    ai = getattr(_brain, "combat", None) if _brain else None
     return {
         "spells": combat_spell_rows(),
+        # Faux tant que le serveur n'a pas annoncé les sorts du personnage : la
+        # liste vient alors du cache disque et peut concerner une autre classe.
+        "known": bool(getattr(ai, "levels", None)),
         "selected": list(_stats.combat_spells),
         "buffs": list(_stats.combat_buffs),
         "move": _stats.combat_move,
@@ -805,6 +814,7 @@ td{padding:6px 8px;border-top:1px solid #262a33;font-variant-numeric:tabular-num
   <div class="k" style="margin-bottom:10px">Sorts de combat
     <span class="sub" style="text-transform:none;letter-spacing:0">l'ordre est
     la priorité : le premier sort qui a une cible valide est lancé</span></div>
+  <div id="spWarn"></div>
   <div class="cols">
     <div><div class="k" style="margin-bottom:6px">Utilisés</div>
       <div class="box" id="spSel"></div></div>
@@ -906,6 +916,13 @@ async function combatFetch(url){
 }
 function paintCombat(){
   if(!combat) return;
+  // Hors connexion la liste vient du cache disque : elle peut appartenir à une
+  // autre classe que celle du personnage qui va jouer.
+  document.getElementById('spWarn').innerHTML = combat.known ? ''
+    : '<div class="hint" style="color:#ffb454">Sorts non confirmés par le '
+      +'serveur : connecte-toi pour que la liste corresponde à la classe du '
+      +'personnage. En attendant, le bot n\\'utilisera que les sorts qu\\'il '
+      +'possède réellement.</div>';
   const by={}; combat.spells.forEach(s=>by[s.id]=s);
   const sel=combat.selected.map(id=>by[id]).filter(Boolean);
   document.getElementById('spSel').innerHTML = sel.length

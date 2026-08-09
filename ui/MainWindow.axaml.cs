@@ -603,6 +603,22 @@ public partial class MainWindow : Window
         return bmp;
     }
 
+    // Une seule instance : rouvrir ramène la fenêtre existante au premier plan
+    // plutôt que d'en empiler des copies qui afficheraient le même état.
+    SpellsWindow? _spells;
+
+    void OnSpells(object? sender, RoutedEventArgs e)
+    {
+        if (_spells is not null)
+        {
+            _spells.Activate();
+            return;
+        }
+        _spells = new SpellsWindow();
+        _spells.Closed += (_, _) => _spells = null;
+        _spells.Show(this);
+    }
+
     void OnOpenWeb(object? sender, RoutedEventArgs e)
     {
         try

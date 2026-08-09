@@ -366,7 +366,7 @@ class Brain:
 
         elif msg.startswith("ASK|"):
             self.char_id = msg.split("|")[1]
-            self.combat.char_id = self.char_id
+            self.combat.on_character(self.char_id)
             # L'inventaire complet arrive avec la sélection du personnage :
             # on y apprend le modèle de tout ce qu'on possède déjà.
             # L'inventaire est le dernier champ, mais il contient lui-même des

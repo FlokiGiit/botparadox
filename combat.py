@@ -242,9 +242,22 @@ class CombatAI:
         self.comte_turns = 0
         self._turn_no = 0          # numéro de tour dans le combat courant
         self._soul_last_turn = -10  # tour du dernier lancer de Capture d'âmes
+        self._no_spell_warned = False   # sélection inadaptée déjà signalée
         self._load_catalog()
 
     # ── lecture du flux ──────────────────────────────────────────────────────
+
+    def on_character(self, char_id):
+        """Personnage sélectionné (paquet ASK).
+
+        Changer de personnage peut changer de classe : on oublie les sorts du
+        précédent, sinon ils resteraient candidats. Le catalogue, lui, peut
+        rester — un sort n'est retenu que s'il figure aussi dans les niveaux
+        appris du personnage courant (voir _spell)."""
+        if self.char_id is not None and self.char_id != char_id:
+            self.levels.clear()
+            self._no_spell_warned = False
+        self.char_id = char_id
 
     def on_packet(self, msg):
         if msg.startswith("ST"):
@@ -374,11 +387,24 @@ class CombatAI:
         La liste vient de l'onglet Farming : le joueur choisit ses sorts et leur
         ordre, on le suit à la lettre. Sans choix, on prend tous les sorts
         offensifs appris, les plus chers en PA d'abord — un coût élevé est le
-        seul indice de puissance dont on dispose sans interroger le serveur."""
+        seul indice de puissance dont on dispose sans interroger le serveur.
+
+        Repli automatique si AUCUN sort choisi n'appartient au personnage
+        connecté : la sélection est enregistrée pour l'installation, pas par
+        personnage, donc changer de perso (ou de classe) la rendait caduque. Sans
+        ce repli le bot passait tous ses tours sans rien lancer, en silence.
+        """
         chosen = self._setting("combat_spells", [])
         if chosen:
-            out = [self._spell(sid) for sid in chosen]
-            return [sp for sp in out if sp is not None]
+            out = [sp for sp in (self._spell(sid) for sid in chosen)
+                   if sp is not None]
+            if out:
+                return out
+            if not self._no_spell_warned:
+                self._no_spell_warned = True
+                self.say("aucun sort choisi n'appartient à ce personnage "
+                         "-> je reprends le choix automatique (revois la liste "
+                         "dans l'onglet Farming)")
         out = [sp for sp in (self._spell(sid) for sid in self.levels)
                if sp is not None and sp.offensive]
         out.sort(key=lambda s: -s.pa)

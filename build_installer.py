@@ -31,8 +31,12 @@ SETUP_EXE = os.path.join(PUBLISH, "BotParadox-Setup.exe")
 
 INSTALLER_DIR = os.path.join(PROJECT, "installer")
 
-# Fichiers data specifiques a une machine : jamais embarques.
-SKIP_DATA = {"session.json", "client_path.txt", "client_override.txt", "bank.json", "overlay.json"}
+# Fichiers data specifiques a une machine ou a un personnage : jamais embarques.
+# spells.json est le catalogue de sorts du personnage qui a joue ici : l'expedier
+# donnerait a chacun les sorts d'une classe qui n'est pas la sienne. Il se
+# reconstruit tout seul au premier paquet ST recu par son proprietaire.
+SKIP_DATA = {"session.json", "client_path.txt", "client_override.txt",
+             "bank.json", "overlay.json", "spells.json"}
 
 
 def run(cmd, **kw):
