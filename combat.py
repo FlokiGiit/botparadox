@@ -66,6 +66,12 @@ MAX_CASTS_PER_TURN = 40
 # après un premier déplacement (Explosive maxée puis Magique hors portée).
 MAX_MOVES_PER_TURN = 3
 
+# Régénération via vol de vie (ex. Flèche Absorbante, effet 93) :
+# on passe ces sorts en tête de liste sous HEAL_ENTER, et on y reste jusqu'à
+# HEAL_EXIT — hystérésis pour ne pas osciller à chaque lancer.
+HEAL_ENTER_RATIO = 0.50
+HEAL_EXIT_RATIO = 0.80
+
 # Capture d'âmes : buff (2 PA, sur soi) qui active la capture des âmes des
 # créatures vaincues. L'effet ne dure que 2 tours -> on le RELANCE toutes les
 # 2 tours pour qu'il reste actif jusqu'à la mort du dernier mob, quel que soit
@@ -149,13 +155,18 @@ class Spell:
         # Sort d'invocation : porte l'effet 181 ("Invoque une créature"). Pour
         # ces sorts, l'assistant montre où POSER (case libre praticable) au lieu
         # d'où frapper. Les blocs d'effets sont aux champs 17 (normal) et 18 (crit).
+        # Effet 93 = vol de vie (Flèche Absorbante, etc.) : priorisé sous 50 % PV.
         self.summon = False
+        self.life_steal = False
         for _idx in (17, 18):
             if len(fields) > _idx and fields[_idx]:
                 import urllib.parse as _up
                 for _eff in _up.unquote(fields[_idx]).split("|"):
-                    if _eff.split(";")[0].strip() == "181":
+                    eid = _eff.split(";")[0].strip()
+                    if eid == "181":
                         self.summon = True
+                    elif eid == "93":
+                        self.life_steal = True
         zone = fields[ST_ZONE] if len(fields) > ST_ZONE else ""
         self.zone_radius = (ord(zone[1]) - ord("a")) if len(zone) >= 2 else 0
         # Nom lisible (pour l'assistant de combat), sinon "sort <id>".
@@ -167,6 +178,9 @@ class Spell:
                 if cand and not cand.isdigit():
                     self.name = cand
                     break
+        # Repli si le catalogue n'a pas l'effet 93 mais le nom le dit.
+        if not self.life_steal and "absorb" in self.name.lower():
+            self.life_steal = True
 
     @property
     def offensive(self):
@@ -263,6 +277,7 @@ class CombatAI:
         self._soul_last_turn = -10  # tour du dernier lancer de Capture d'âmes
         self._no_spell_warned = False   # sélection inadaptée déjà signalée
         self._nileza_pack_warned = False  # pack multi-Nileza déjà signalé
+        self._heal_prio = False         # priorité vol de vie (hystérésis PV)
         self._load_catalog()
 
     # ── lecture du flux ──────────────────────────────────────────────────────
@@ -401,6 +416,32 @@ class CombatAI:
         return (self.catalog.get((spell_id, level))
                 or self.catalog.get((spell_id, 1)))
 
+    def _hp_ratio(self):
+        """PV courants / PVmax du perso, ou 1.0 si inconnu."""
+        me = self.fighters.get(self.char_id)
+        if me is None or me.pvmax <= 0:
+            return 1.0
+        return max(0.0, min(1.0, me.hp / me.pvmax))
+
+    def _update_heal_prio(self):
+        """Active la priorité vol de vie sous 50 % PV, la coupe au-dessus de 80 %.
+
+        Hystérésis : sans ça, un seul Absorbante qui remonte juste au-dessus
+        de 50 % ferait retomber sur Explosive, puis redescendre, etc."""
+        ratio = self._hp_ratio()
+        was = self._heal_prio
+        if self._heal_prio:
+            if ratio >= HEAL_EXIT_RATIO:
+                self._heal_prio = False
+        elif ratio <= HEAL_ENTER_RATIO:
+            self._heal_prio = True
+        if self._heal_prio and not was:
+            pct = int(ratio * 100)
+            self.say(f"PV bas ({pct} %) -> priorité vol de vie (Absorbante)")
+        elif was and not self._heal_prio:
+            self.say(f"PV rétablis ({int(ratio * 100)} %) -> priorité d'attaque")
+        return self._heal_prio
+
     def _plan(self):
         """Sorts à tenter, dans l'ordre de priorité.
 
@@ -413,13 +454,17 @@ class CombatAI:
         connecté : la sélection est enregistrée pour l'installation, pas par
         personnage, donc changer de perso (ou de classe) la rendait caduque. Sans
         ce repli le bot passait tous ses tours sans rien lancer, en silence.
+
+        Sous 50 % PV : les sorts à vol de vie (Absorbante…) passent en tête,
+        le reste garde l'ordre choisi — dès que le plafond de lancers du sort
+        de soin est atteint, on reprend l'attaque normalement.
         """
         chosen = self._setting("combat_spells", [])
         if chosen:
             out = [sp for sp in (self._spell(sid) for sid in chosen)
                    if sp is not None]
             if out:
-                return out
+                return self._prioritize_heals(out)
             if not self._no_spell_warned:
                 self._no_spell_warned = True
                 self.say("aucun sort choisi n'appartient à ce personnage "
@@ -428,7 +473,17 @@ class CombatAI:
         out = [sp for sp in (self._spell(sid) for sid in self.levels)
                if sp is not None and sp.offensive]
         out.sort(key=lambda s: -s.pa)
-        return out
+        return self._prioritize_heals(out)
+
+    def _prioritize_heals(self, spells):
+        """Remonte les sorts à vol de vie en tête si les PV sont bas."""
+        if not self._update_heal_prio():
+            return spells
+        heals = [sp for sp in spells if sp.life_steal]
+        if not heals:
+            return spells
+        rest = [sp for sp in spells if not sp.life_steal]
+        return heals + rest
 
     def _castable(self, spell):
         """Assez de PA et plafond de lancers du tour non atteint."""
@@ -964,3 +1019,4 @@ class CombatAI:
         self.comte_id = None
         self.comte_turns = 0
         self._nileza_pack_warned = False
+        self._heal_prio = False
