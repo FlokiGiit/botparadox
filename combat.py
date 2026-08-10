@@ -940,6 +940,14 @@ class CombatAI:
             await asyncio.sleep(DELAY_BEFORE_TURN)
             await self._cast_auto_prep(my_cell)
             await self._maybe_cast_capture(my_cell)
+            # Korriandre : la glyphe apparaît sous nos pieds dès le début du
+            # tour. On la quitte MAINTENANT, tant qu'on a tous ses PM : le faire
+            # juste avant le Gt (ça reste le garde-fou plus bas) échouait dès que
+            # l'IA avait dépensé ses PM à s'approcher — plus un seul PM pour
+            # sortir, donc mort sur la glyphe.
+            await self._escape_script_cells()
+            me = self.fighters.get(self.char_id)
+            my_cell = me.cell if me else my_cell
             # Script fixe (ex. Kralamoure) : on rejoue la séquence tour par tour
             # et on saute l'IA générique.
             if self.script is not None:
@@ -1017,12 +1025,18 @@ class CombatAI:
             return
         blocked = {f.cell for f in self.fighters.values() if f.cell != me.cell}
         came, dist = self._reachable(me.cell, self.pm, blocked)
-        candidates = [(steps, cell) for cell, steps in dist.items()
+        # Le moins de PM possible, mais à égalité on reste près des ennemis :
+        # prendre la première case venue faisait parfois reculer le bot hors de
+        # portée, et il passait son tour suivant à revenir.
+        foes = [f.cell for f in self._enemies() if f.cell is not None]
+        def _far(cell):
+            return min((losrange.distance(cell, c) for c in foes), default=0)
+        candidates = [(steps, _far(cell), cell) for cell, steps in dist.items()
                       if cell != me.cell and cell not in forbidden]
         if not candidates:
             self.say("script : aucune case sûre joignable — risque glyphe")
             return
-        steps, cell = min(candidates)
+        steps, _, cell = min(candidates)
         from gamemap import compress_path
         path = self._path(came, cell)
         encoded = compress_path(path)

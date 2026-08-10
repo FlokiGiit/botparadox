@@ -29,6 +29,10 @@ body{font:12.5px/1.35 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
 .tabs b.on{background:linear-gradient(180deg,#3a2422,#2a1c1c);color:var(--accent);
            border-color:var(--accent2)}
 .sum{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:2px}
+/* Les jetons de prestige n'arrivent pas comme un loot ordinaire (ils ne
+   passent que par le bilan de combat) : ils ont leur propre ligne, sur toute
+   la largeur, sous l'XP et les kamas. */
+.sum .wide{grid-column:1/-1}
 .stat{background:var(--panel);border-radius:9px;padding:7px 8px 6px;
       border:1px solid var(--edge);position:relative;overflow:hidden}
 .stat::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--edge)}
@@ -39,10 +43,18 @@ body{font:12.5px/1.35 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
 .stat.kam::before{background:var(--kam)}.stat.kam .val{color:var(--kam)}
 .stat.inv::before{background:var(--kam)}.stat.inv .val{color:var(--kam)}
 .stat.lvl::before{background:var(--lvl)}.stat.lvl .val{color:var(--lvl)}
+.stat.jet::before{background:var(--accent)}.stat.jet .val{color:var(--accent)}
+.stat.jet{display:flex;align-items:baseline;gap:8px}
+.stat.jet .lbl{flex:1}
 .stat .sub{font-size:10px;color:var(--faint);margin-top:1px}
 h1{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);
    font-weight:700;margin:13px 0 7px;display:flex;align-items:center;gap:7px}
-h1::after{content:"";flex:1;height:1px;background:var(--edge)}
+h1::after{content:"";flex:1;height:1px;background:var(--edge);order:2}
+/* Action discrete dans un titre de section : visible seulement au survol. */
+.act{order:3;cursor:pointer;color:var(--faint);font-size:9px;letter-spacing:.06em;
+     border:1px solid var(--edge);border-radius:5px;padding:2px 6px;opacity:.45;
+     transition:opacity .15s,color .15s,border-color .15s}
+.act:hover{opacity:1;color:var(--accent);border-color:var(--accent2)}
 .row{display:flex;align-items:center;gap:8px;padding:6px 8px;margin-bottom:4px;
      border-radius:8px;background:var(--panel);border:1px solid var(--edge);
      animation:fadeIn .25s ease}
@@ -93,8 +105,12 @@ input::placeholder{color:var(--faint)}
       <div class="sub" id="slvlsub">session +0</div></div>
     <div class="stat xp"><div class="lbl">XP session</div><div class="val" id="sxp">0</div></div>
     <div class="stat kam"><div class="lbl">Kamas session</div><div class="val" id="skam">0</div></div>
+    <div class="stat jet wide"><div class="lbl">Jetons de prestige</div>
+      <div class="val" id="sjet">0</div>
+      <div class="sub" id="sjettot"></div></div>
   </div>
-  <h1>Loot rare</h1>
+  <h1><span>Loot rare</span><b class="act" onclick="clearRare()"
+      title="Vider la liste (les objets restent dans le sac)">vider</b></h1>
   <div id="rareList"></div>
 </div>
 
@@ -145,6 +161,13 @@ async function search(){
     `<div class="row" onclick="add(${i.id})">${img(i.gfx)}<span class="n">${i.name}</span><span class="q">+</span></div>`
   ).join('')||'<div class="empty">aucun resultat</div>';
 }
+// Vide le compteur de loot rare (les objets restent dans le sac) : la liste
+// d'une session de plusieurs heures devient illisible.
+async function clearRare(){
+  if(!confirm("Vider la liste du loot rare ?"))return;
+  try{ await fetch('/rare/clear'); }catch(e){}
+  tick();
+}
 async function add(id){ try{ await fetch('/craft/add/'+id); tick(); }catch(e){} }
 async function fuse(id,ev){
   if(ev) ev.stopPropagation();
@@ -192,6 +215,9 @@ async function tick(){
   const lvl=d.level;
   document.getElementById("slvl").textContent=(lvl==null||lvl==="")?"—":String(lvl);
   document.getElementById("slvlsub").textContent="session +"+(d.session_levels||0);
+  document.getElementById("sjet").textContent="+"+compact(d.prestige||0);
+  document.getElementById("sjettot").textContent=
+    d.total_prestige?("total "+compact(d.total_prestige)):"";
   const rare=d.rare||[];
   paint("rareList", rare.length ? rare.map(i=>
     `<div class="row ${i.cat}">${img(i.gfx)}<div class="n">${i.name}<div class="cat">${label[i.cat]||""}</div></div><div class="q">x${i.gained}</div></div>`

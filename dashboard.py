@@ -715,6 +715,25 @@ class Stats:
         out.sort(key=lambda r: -r["last"])
         return out
 
+    def clear_rare(self, gd):
+        """Remet a zero le compteur de loot rare (les objets restent dans le
+        sac : on ne touche qu'au « gagne cette session »).
+
+        Sur une session de plusieurs heures la liste devient illisible ; on la
+        vide donc a la demande, sans perdre les quantites reelles."""
+        n = 0
+        for uid, v in self.items.items():
+            if v["gained"] <= 0:
+                continue
+            model = gd.model_of(uid) or uid
+            if not _rare_category(model, gd.items.get(str(model))):
+                continue
+            v["gained"] = 0
+            n += 1
+        if n:
+            self.persist()
+        return n
+
     def _render_event(self, event, gd):
         """Complète les événements avec les noms, connus seulement à l'affichage."""
         if event["kind"] == "levelup":
@@ -1089,6 +1108,14 @@ async def _handle(reader, writer):
             _stats.event("info", "capture d'âmes " +
                          ("activée" if _stats.capture_souls else "désactivée"))
             body = json.dumps({"capture_souls": _stats.capture_souls}).encode()
+            writer.write(_headers("application/json", len(body)) + body)
+            await writer.drain()
+            return
+
+        if path.startswith("/rare/clear"):
+            n = _stats.clear_rare(gamedata.get())
+            _stats.event("info", f"loot rare remis a zero ({n} objet(s))")
+            body = json.dumps({"cleared": n}).encode()
             writer.write(_headers("application/json", len(body)) + body)
             await writer.drain()
             return
