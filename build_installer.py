@@ -36,7 +36,7 @@ INSTALLER_DIR = os.path.join(PROJECT, "installer")
 # donnerait a chacun les sorts d'une classe qui n'est pas la sienne. Il se
 # reconstruit tout seul au premier paquet ST recu par son proprietaire.
 SKIP_DATA = {"session.json", "client_path.txt", "client_override.txt",
-             "bank.json", "overlay.json", "spells.json"}
+             "overlay.json", "spells.json"}
 
 
 def run(cmd, **kw):
@@ -68,6 +68,12 @@ def freeze_bot():
         if f.endswith(".json") and f not in SKIP_DATA:
             shutil.copy2(os.path.join(PROJECT, "data", f),
                          os.path.join(data_dst, f))
+    # Icones de sorts : absentes du client (qui ne les a qu'en Flash), donc
+    # livrees avec le bot. Les SVG sources restent en local, le PNG suffit.
+    icons = os.path.join(PROJECT, "data", "spell_icons")
+    if os.path.isdir(icons):
+        shutil.copytree(icons, os.path.join(data_dst, "spell_icons"),
+                        ignore=shutil.ignore_patterns("*.svg"))
     os.makedirs(os.path.join(dst, "logs"), exist_ok=True)
     print("   botcore pret :", dst)
 

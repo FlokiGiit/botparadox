@@ -19,6 +19,10 @@ data/client_path.txt
 data/client_override.txt
 data/*.bak
 
+# cache de conversion des icones de sorts : seuls les PNG (data/spell_icons)
+# sont versionnes, les SVG se retelechargent avec spell_icons.py
+data/spell_svg/
+
 # divers
 *.log
 data/bank.json

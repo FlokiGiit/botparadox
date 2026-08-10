@@ -202,7 +202,6 @@ class Brain:
         self.engaging_since = None   # attaque envoyee, combat pas encore ouvert
         self.map_ready = False       # contenu de carte recu depuis le combat
         self.map_wait_since = 0.0
-        self.bank_mode = False       # un echange de type banque est ouvert
         # stats en premier : CombatAI appelle say() des sa construction
         # (reprise du catalogue), et say() ecrit dans la trace.
         self.stats = dashboard.stats()
@@ -551,19 +550,6 @@ class Brain:
                 # Libère les caches UID (sinon ils grossissent toute la session).
                 self.stats.item_remove(uid)
                 gd.forget_uid(uid)
-
-        elif msg.startswith("ECK"):
-            # Ouverture d'un échange. Type 5 = banque (coffre) : les paquets ELO
-            # qui suivent listent son contenu, qu'on compte dans le calculateur.
-            self.bank_mode = (msg[3:].strip() == "5")
-
-        elif msg.startswith("ELO") and self.bank_mode:
-            # Liste complète de la banque : on remplace et on mémorise sur disque
-            # (le contenu survit ainsi aux redémarrages, sans rouvrir la banque).
-            self.stats.set_bank(gamedata.get().parse_bank(msg[3:]))
-
-        elif msg.startswith("EV"):
-            self.bank_mode = False   # échange fermé
 
     # ── état ─────────────────────────────────────────────────────────────────
 

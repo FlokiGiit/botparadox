@@ -14,7 +14,7 @@ ASSIST_PAGE = r"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Assistant de combat</title>
 <style>
-  :root{--bg:#0d1117;--fg:#e6e8eb;--sub:#8b949e;--card:#161b22;--edge:#262a33;
+  :root{--bg:#0e0b0c;--fg:#ece6e5;--sub:#9a8c8b;--card:#171213;--edge:#2a2022;
         --ok:#3fb950;--enemy:#e05561;--me:#4a9eff;--boss:#e3b341;--ally:#7ee787}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--fg);
@@ -28,9 +28,10 @@ ASSIST_PAGE = r"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
           border-bottom:1px solid var(--edge);min-height:20px}
   .sp{display:flex;align-items:center;gap:6px;padding:6px 9px;border-radius:8px;
       background:var(--card);border:1px solid var(--edge);cursor:pointer;color:var(--fg)}
-  .sp:hover{border-color:#3d4450}
+  .sp:hover{border-color:#8e4640}
   .sp.on{border-color:var(--ok);background:#12291a}
-  .sp img{width:22px;height:22px;border-radius:4px}
+  .sp img{width:24px;height:24px;border-radius:5px;background:#0e0b0c;
+          border:1px solid #2a2022;object-fit:contain}
   .sp .pa{color:var(--boss);font-weight:700}
   #main{display:flex;gap:0;align-items:flex-start}
   #wrap{flex:1;overflow:auto;padding:12px}
@@ -47,7 +48,7 @@ ASSIST_PAGE = r"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
   .row{display:flex;align-items:center;gap:8px;margin:6px 0}
   .dot{width:11px;height:11px;border-radius:50%;flex:none}
   .nm{flex:none;width:56px}
-  .hpwrap{flex:1;height:12px;background:#0d1117;border-radius:6px;overflow:hidden}
+  .hpwrap{flex:1;height:12px;background:#0e0b0c;border-radius:6px;overflow:hidden}
   .hp{height:100%;border-radius:6px}
   .hpn{flex:none;font-size:11px;color:var(--sub);width:78px;text-align:right;
        font-variant-numeric:tabular-nums}
@@ -108,7 +109,7 @@ function draw(){
     var show = cell.w || occ[i] || validSet.has(i);
     if(!show) continue;
     var s=screenXY(i),cx=s[0]+off,cy=s[1]+CH/2+1;
-    diamond(ctx,cx,cy, cell.w?'#1b2130':'#141922', '#20252f');
+    diamond(ctx,cx,cy, cell.w?'#241a1b':'#171213', '#2a2022');
   }
   var pairs=(valid&&valid.pairs)||[];
   var conf=valid&&valid.confusion;
@@ -147,7 +148,7 @@ function draw(){
 function mark(ctx,cell,off,color,label){
   var s=screenXY(cell),cx=s[0]+off,cy=s[1]+CH/2+1;
   diamond(ctx,cx,cy,color,'#fff');
-  ctx.fillStyle='#0d1117';ctx.font='bold 8px sans-serif';ctx.textAlign='center';
+  ctx.fillStyle='#0e0b0c';ctx.font='bold 8px sans-serif';ctx.textAlign='center';
   ctx.fillText(label,cx,cy+3);
 }
 
@@ -162,7 +163,7 @@ function renderSpells(){
   state.spells.forEach(function(sp){
     var b=document.createElement('div');b.className='sp'+(selected===sp.id?' on':'');
     b.dataset.id=sp.id;
-    b.innerHTML='<img src="/icon/sort/'+sp.id+'" onerror="this.style.display=\'none\'">'
+    b.innerHTML='<img src="/spellicon/'+sp.id+'" onerror="this.style.display=\'none\'">'
       +'<span>'+sp.name+'</span><span class="pa">'+sp.pa+'&nbsp;PA</span>';
     b.onclick=function(){selected=(selected===sp.id?null:sp.id);markSel();refreshValid();};
     box.appendChild(b);
@@ -181,7 +182,7 @@ function renderInfo(){
   document.getElementById('mycell').textContent =
     state.active&&state.my_cell!=null?('cellule '+state.my_cell):'';
   if(!state.active){
-    st.textContent='en attente d\'un combat';st.style.color='#8b949e';
+    st.textContent='en attente d\'un combat';st.style.color='#9a8c8b';
     document.getElementById('fighters').innerHTML='—';
     document.getElementById('hint').textContent='Lance un combat : la grille et tes sorts apparaîtront ici.';
     return;

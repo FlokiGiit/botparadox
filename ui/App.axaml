@@ -1,10 +1,56 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="ui.App"
-             RequestedThemeVariant="Default">
-             <!-- "Default" ThemeVariant follows system theme variant. "Dark" or "Light" are other available options. -->
+             RequestedThemeVariant="Dark">
+  <!-- Palette « brique douce » : rouge terreux desature, jamais alarmant. Le
+       rouge vif est reserve aux erreurs (BpBad), l'or aux kamas (BpKamas), pour
+       qu'un chiffre garde toujours le meme sens quelle que soit la fenetre. -->
+  <Application.Resources>
+    <!-- Accent du theme Fluent : sans ca, cases a cocher, curseurs, barres de
+         defilement et cadres de focus restaient au bleu de Windows au milieu
+         d'une interface brique. -->
+    <Color x:Key="SystemAccentColor">#C4675F</Color>
+    <Color x:Key="SystemAccentColorLight1">#CF7A72</Color>
+    <Color x:Key="SystemAccentColorLight2">#DA8E86</Color>
+    <Color x:Key="SystemAccentColorLight3">#E5A29B</Color>
+    <Color x:Key="SystemAccentColorDark1">#A9534C</Color>
+    <Color x:Key="SystemAccentColorDark2">#8E4640</Color>
+    <Color x:Key="SystemAccentColorDark3">#733833</Color>
 
-    <Application.Styles>
-        <FluentTheme />
-    </Application.Styles>
+    <Color x:Key="BpBg">#0E0B0C</Color>
+    <Color x:Key="BpPanel">#171213</Color>
+    <Color x:Key="BpPanel2">#1F1819</Color>
+    <Color x:Key="BpPanel3">#271F20</Color>
+    <Color x:Key="BpEdge">#2A2022</Color>
+    <Color x:Key="BpText">#ECE6E5</Color>
+    <Color x:Key="BpMuted">#9A8C8B</Color>
+    <Color x:Key="BpFaint">#6B5F5F</Color>
+    <Color x:Key="BpAccent">#C4675F</Color>
+    <Color x:Key="BpAccentDim">#8E4640</Color>
+    <Color x:Key="BpInk">#150F0F</Color>
+    <Color x:Key="BpOk">#86B48F</Color>
+    <Color x:Key="BpWarn">#D9A85C</Color>
+    <Color x:Key="BpBad">#E8574F</Color>
+    <Color x:Key="BpKamas">#D9A85C</Color>
+    <Color x:Key="BpInfo">#7FA6C9</Color>
+    <SolidColorBrush x:Key="BpBgBrush" Color="{StaticResource BpBg}"/>
+    <SolidColorBrush x:Key="BpPanelBrush" Color="{StaticResource BpPanel}"/>
+    <SolidColorBrush x:Key="BpPanel2Brush" Color="{StaticResource BpPanel2}"/>
+    <SolidColorBrush x:Key="BpPanel3Brush" Color="{StaticResource BpPanel3}"/>
+    <SolidColorBrush x:Key="BpEdgeBrush" Color="{StaticResource BpEdge}"/>
+    <SolidColorBrush x:Key="BpTextBrush" Color="{StaticResource BpText}"/>
+    <SolidColorBrush x:Key="BpMutedBrush" Color="{StaticResource BpMuted}"/>
+    <SolidColorBrush x:Key="BpFaintBrush" Color="{StaticResource BpFaint}"/>
+    <SolidColorBrush x:Key="BpAccentBrush" Color="{StaticResource BpAccent}"/>
+    <SolidColorBrush x:Key="BpAccentDimBrush" Color="{StaticResource BpAccentDim}"/>
+    <SolidColorBrush x:Key="BpInkBrush" Color="{StaticResource BpInk}"/>
+    <SolidColorBrush x:Key="BpOkBrush" Color="{StaticResource BpOk}"/>
+    <SolidColorBrush x:Key="BpWarnBrush" Color="{StaticResource BpWarn}"/>
+    <SolidColorBrush x:Key="BpBadBrush" Color="{StaticResource BpBad}"/>
+    <SolidColorBrush x:Key="BpKamasBrush" Color="{StaticResource BpKamas}"/>
+    <SolidColorBrush x:Key="BpInfoBrush" Color="{StaticResource BpInfo}"/>
+  </Application.Resources>
+  <Application.Styles>
+    <FluentTheme />
+  </Application.Styles>
 </Application>

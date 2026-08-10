@@ -23,7 +23,6 @@ namespace ui;
 
 // Types explicites plutôt qu'anonymes : les liaisons compilées d'Avalonia ont
 // besoin de connaître la forme des données à la compilation.
-public record JobRow(string? Name, string Detail, double Pct);
 public record ItemRow(string? Name, string Gained, Bitmap? Icon);
 public record EventRow(string Time, string? Text, IBrush Colour, Bitmap? Icon);
 public record LogRow(string Time, string? Text);
@@ -109,6 +108,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        ShowLogTab(true);
         _timer.Tick += async (_, _) => await Refresh();
         _timer.Start();
         Opened += async (_, _) =>
@@ -287,14 +287,25 @@ public partial class MainWindow : Window
         return dir?.FullName ?? ExeDir();
     }
 
-    // Dossier data lu par le bot (ou vit client_override.txt).
-    static string ClientDataDir()
+    // Dossier data lu par le bot (ou vivent client_override.txt et les
+    // icones de sorts). Partage avec la fenetre Sorts.
+    internal static string ClientDataDir()
     {
         var exe = BotCoreExe();
         return exe is not null
             ? Path.Combine(Path.GetDirectoryName(exe)!, "data")   // installé : botcore\data
             : Path.Combine(ProjectDir(), "data");                 // dev : projet\data
     }
+
+    // Emplacements possibles des icones de sorts (data/spell_icons), du plus
+    // probable au moins probable : bot installe, puis sources. Utilise par la
+    // fenetre Sorts.
+    internal static string[] SpellIconDirs() => new[]
+    {
+        Path.Combine(ClientDataDir(), "spell_icons"),
+        Path.Combine(ProjectDir(), "data", "spell_icons"),
+        Path.Combine(InstallDir(), "botcore", "data", "spell_icons"),
+    };
 
     // Re-pointe le client du jeu : utile si le launcher a été déplacé/réinstallé
     // ailleurs et que la détection automatique ne le retrouve plus.
@@ -344,7 +355,6 @@ public partial class MainWindow : Window
     // Le mode vit dans le bot, pas dans la fenetre : il survit donc a la
     // fermeture de l'interface et reste coherent avec le tableau de bord web.
     async void OnObserve(object? sender, RoutedEventArgs e) => await SetMode("off");
-    async void OnHarvest(object? sender, RoutedEventArgs e) => await SetMode("harvest");
     async void OnFarm(object? sender, RoutedEventArgs e) => await SetMode("farm");
     async void OnKralamoure(object? sender, RoutedEventArgs e) => await SetMode("kralamoure");
 
@@ -461,7 +471,38 @@ public partial class MainWindow : Window
         StartStop.Content = "Démarrer";
         Shutdown.IsEnabled = false;
         Status.Text = "arrêté";
-        Dot.Fill = new SolidColorBrush(Color.Parse("#e05561"));
+        Dot.Fill = new SolidColorBrush(Color.Parse("#E8574F"));
+    }
+
+    // Palette « brique douce », en miroir de App.axaml : le code peint les
+    // etats qui viennent du bot (mode courant, onglet actif), le XAML le reste.
+    static readonly IBrush ModeOn = new SolidColorBrush(Color.Parse("#C4675F"));
+    static readonly IBrush ModeOff = new SolidColorBrush(Color.Parse("#1F1819"));
+    static readonly IBrush ModeOnFg = new SolidColorBrush(Color.Parse("#150F0F"));
+    static readonly IBrush ModeOffFg = new SolidColorBrush(Color.Parse("#9A8C8B"));
+    static readonly IBrush TabOn = new SolidColorBrush(Color.Parse("#271F20"));
+    static readonly IBrush TabOnFg = new SolidColorBrush(Color.Parse("#C4675F"));
+    static readonly IBrush TabOffFg = new SolidColorBrush(Color.Parse("#6B5F5F"));
+
+    void PaintMode(Button btn, bool on)
+    {
+        btn.Background = on ? ModeOn : ModeOff;
+        btn.Foreground = on ? ModeOnFg : ModeOffFg;
+    }
+
+    // ── journal / trace : un seul bloc, deux onglets ─────────────────────────
+
+    void OnTabJournal(object? sender, RoutedEventArgs e) => ShowLogTab(true);
+    void OnTabTrace(object? sender, RoutedEventArgs e) => ShowLogTab(false);
+
+    void ShowLogTab(bool journal)
+    {
+        JournalView.IsVisible = journal;
+        TraceView.IsVisible = !journal;
+        TabJournal.Background = journal ? TabOn : Brushes.Transparent;
+        TabJournal.Foreground = journal ? TabOnFg : TabOffFg;
+        TabTrace.Background = journal ? Brushes.Transparent : TabOn;
+        TabTrace.Foreground = journal ? TabOffFg : TabOnFg;
     }
 
     // ── rafraîchissement ─────────────────────────────────────────────────────
@@ -475,7 +516,7 @@ public partial class MainWindow : Window
         }
         catch
         {
-            Dot.Fill = new SolidColorBrush(Color.Parse("#e05561"));
+            Dot.Fill = new SolidColorBrush(Color.Parse("#E8574F"));
             Status.Text = _bot is { HasExited: false } ? "démarrage…" : "arrêté";
             _running = _bot is { HasExited: false };
             StartStop.Content = _running ? "Mettre en pause" : "Démarrer";
@@ -490,28 +531,29 @@ public partial class MainWindow : Window
         Status.Text = !client ? "prêt — lance Paradox et connecte-toi"
                     : _enabled ? "en marche" : "en pause";
         Dot.Fill = new SolidColorBrush(Color.Parse(
-            !client ? "#4a9eff" : _enabled ? "#7dd3a0" : "#ffb454"));
+            !client ? "#7FA6C9" : _enabled ? "#86B48F" : "#D9A85C"));
         Shutdown.IsEnabled = true;
 
-        var mode = root.GetProperty("mode").GetString() ?? "harvest";
-        // Kralamoure est un mode de combat : mêmes cartes que le farm.
-        var combat = mode == "farm" || mode == "kralamoure";
-        CardKills.IsVisible = combat;
-        CardXp.IsVisible = combat;
-        CardHarvests.IsVisible = !combat;
-        CardPods.IsVisible = !combat;
-        // Les metiers ne progressent pas en combat : hors sujet en farm/krala.
-        JobsTitle.IsVisible = !combat;
-        Jobs.IsVisible = !combat;
-        var off = mode == "off";
-        TabObserve.Background = new SolidColorBrush(Color.Parse(
-            off ? "#4a9eff" : "#2a2f3a"));
-        TabHarvest.Background = new SolidColorBrush(Color.Parse(
-            mode == "harvest" ? "#4a9eff" : "#2a2f3a"));
-        TabFarm.Background = new SolidColorBrush(Color.Parse(
-            mode == "farm" ? "#4a9eff" : "#2a2f3a"));
-        TabKral.Background = new SolidColorBrush(Color.Parse(
-            mode == "kralamoure" ? "#4a9eff" : "#2a2f3a"));
+        var mode = root.GetProperty("mode").GetString() ?? "farm";
+        var observer = mode == "off";
+        PaintMode(TabObserve, observer);
+        PaintMode(TabFarm, mode == "farm" || mode == "harvest");
+        PaintMode(TabKral, mode == "kralamoure");
+
+        // Assistance : prep et capture marchent dans TOUS les modes (voir
+        // combat.py:_cast_auto_prep). Seuls les scripts de combat dependent du
+        // bot aux commandes : en Observer il ne se deplace pas, donc rien a
+        // eviter — on verrouille la case au lieu de laisser croire qu'elle agit.
+        AssistMode.Text = "mode : " + mode switch
+        {
+            "off" => "Observer",
+            "kralamoure" => "Kralamoure",
+            "harvest" => "Récolte",
+            _ => "Farming",
+        };
+        ScriptKorriandre.IsEnabled = !observer;
+        KorriHint.IsVisible = observer;
+
         if (root.TryGetProperty("capture_souls", out var soul))
             SoulCap.IsChecked = soul.GetBoolean();
         if (root.TryGetProperty("auto_maitrise", out var maitrise))
@@ -527,12 +569,13 @@ public partial class MainWindow : Window
         KillsRate.Text = $"{root.GetProperty("kills_per_hour").GetDouble():0} / heure";
         XpGained.Text = Compact(root.GetProperty("xp_gained").GetInt64());
         XpGainedRate.Text = Compact((long)root.GetProperty("xp_per_hour").GetDouble()) + " / heure";
+        InvKamas.Text = root.GetProperty("kamas").GetInt64().ToString("N0");
         Kamas.Text = root.GetProperty("kamas_gained").GetInt64().ToString("N0");
-        KamasRate.Text = $"{root.GetProperty("kamas_per_hour").GetDouble():N0} / heure";
+        KamasRate.Text = $"+{root.GetProperty("kamas_per_hour").GetDouble():N0} / h session";
 
-        Harvests.Text = root.GetProperty("harvests").GetInt32().ToString();
-        Rate.Text = $"{root.GetProperty("harvests_per_hour").GetDouble():0} / heure";
         Fights.Text = root.GetProperty("fights").GetInt32().ToString();
+        FightsSub.Text = root.TryGetProperty("fights_won", out var won)
+            ? won.GetInt32() + " terminés" : "";
         Pods.Text = root.GetProperty("pods").GetInt32().ToString("N0");
         PodsBar.Value = Math.Min(100, root.GetProperty("pods_pct").GetDouble());
         Uptime.Text = TimeSpan.FromSeconds(root.GetProperty("uptime").GetDouble())
@@ -543,6 +586,8 @@ public partial class MainWindow : Window
 
         var lvl = root.GetProperty("level");
         Level.Text = lvl.ValueKind == JsonValueKind.Number ? lvl.GetInt32().ToString() : "—";
+        var lvlGain = root.TryGetProperty("session_levels", out var sl) ? sl.GetInt32() : 0;
+        LevelGain.Text = lvlGain > 0 ? $"+{lvlGain}" : "";
 
         var xp = root.GetProperty("xp");
         if (xp.ValueKind == JsonValueKind.Object)
@@ -551,14 +596,6 @@ public partial class MainWindow : Window
             XpText.Text = $"{xp.GetProperty("pct").GetDouble():0.0}% — reste "
                         + Compact(xp.GetProperty("remaining").GetInt64());
         }
-
-        var jobs = new List<JobRow>();
-        foreach (var j in root.GetProperty("jobs").EnumerateArray())
-            jobs.Add(new JobRow(
-                j.GetProperty("name").GetString(),
-                $"niv. {j.GetProperty("level").GetInt32()} — {j.GetProperty("pct").GetDouble():0}%",
-                j.GetProperty("pct").GetDouble()));
-        Jobs.ItemsSource = jobs;
 
         var items = new List<ItemRow>();
         foreach (var i in root.GetProperty("items").EnumerateArray())
@@ -578,13 +615,13 @@ public partial class MainWindow : Window
                 e.GetProperty("text").GetString(),
                 new SolidColorBrush(Color.Parse(kind switch
                 {
-                    "harvest" => "#7dd3a0",
-                    "fight" => "#ffb454",
-                    "drop" => "#4a9eff",
-                    "levelup" => "#c084fc",
-                    "xp" => "#7dd3a0",
-                    "kamas" => "#ffd166",
-                    _ => "#e6e8eb",
+                    "harvest" => "#86B48F",
+                    "fight" => "#D9A85C",
+                    "drop" => "#7FA6C9",
+                    "levelup" => "#C9A0E8",
+                    "xp" => "#86B48F",
+                    "kamas" => "#D9A85C",
+                    _ => "#ECE6E5",
                 })),
                 e.TryGetProperty("gfx", out var g) ? LoadIcon(g.GetString()) : null));
         }

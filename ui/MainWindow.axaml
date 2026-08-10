@@ -2,203 +2,454 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:ui"
         x:Class="ui.MainWindow"
-        Title="Bot Paradox" Width="880" Height="620"
-        Background="#14161a" MinWidth="640" MinHeight="480">
+        Title="Bot Paradox" Width="1060" Height="830"
+        Background="{StaticResource BpBgBrush}"
+        MinWidth="900" MinHeight="620"
+        FontFamily="Inter, Segoe UI Variable Text, Segoe UI">
+
+  <!-- Trois zones, trois natures : le rail gauche porte tout ce qui AGIT
+       (pilotage, mode, outils), la colonne droite tout ce qui SE LIT
+       (compteurs, options, listes), le bas tout ce qui DEFILE (journal /
+       trace, dans un seul bloc a onglets). Avant, les quatre natures se
+       melangeaient dans une meme rangee de boutons. -->
 
   <Window.Styles>
+    <!-- libelle de section / de tuile -->
     <Style Selector="TextBlock.k">
-      <Setter Property="Foreground" Value="#7d8797"/>
+      <Setter Property="Foreground" Value="{StaticResource BpFaintBrush}"/>
+      <Setter Property="FontSize" Value="10"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="LetterSpacing" Value="1.2"/>
+    </Style>
+    <!-- titre de carte -->
+    <Style Selector="TextBlock.h">
+      <Setter Property="Foreground" Value="{StaticResource BpMutedBrush}"/>
       <Setter Property="FontSize" Value="11"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="LetterSpacing" Value="1.2"/>
     </Style>
     <Style Selector="TextBlock.v">
-      <Setter Property="Foreground" Value="#e6e8eb"/>
-      <Setter Property="FontSize" Value="26"/>
+      <Setter Property="Foreground" Value="{StaticResource BpTextBrush}"/>
+      <Setter Property="FontSize" Value="21"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Margin" Value="0,2,0,0"/>
     </Style>
     <Style Selector="TextBlock.sub">
-      <Setter Property="Foreground" Value="#7d8797"/>
-      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Foreground" Value="{StaticResource BpMutedBrush}"/>
+      <Setter Property="FontSize" Value="11.5"/>
     </Style>
+    <Style Selector="TextBlock.tag">
+      <Setter Property="Foreground" Value="{StaticResource BpFaintBrush}"/>
+      <Setter Property="FontSize" Value="10.5"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
     <Style Selector="Border.card">
-      <Setter Property="Background" Value="#1c1f26"/>
-      <Setter Property="BorderBrush" Value="#262a33"/>
+      <Setter Property="Background" Value="{StaticResource BpPanelBrush}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource BpEdgeBrush}"/>
       <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="CornerRadius" Value="10"/>
+      <Setter Property="CornerRadius" Value="12"/>
       <Setter Property="Padding" Value="14"/>
     </Style>
+    <Style Selector="Border.stat">
+      <Setter Property="Background" Value="{StaticResource BpPanel2Brush}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource BpEdgeBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="10"/>
+      <Setter Property="Padding" Value="13,8"/>
+      <Setter Property="Margin" Value="5"/>
+    </Style>
+    <Style Selector="Border.rule">
+      <Setter Property="Height" Value="1"/>
+      <Setter Property="Background" Value="{StaticResource BpEdgeBrush}"/>
+    </Style>
+
     <Style Selector="Button">
-      <Setter Property="Background" Value="#2a2f3a"/>
-      <Setter Property="Foreground" Value="#e6e8eb"/>
-      <Setter Property="CornerRadius" Value="6"/>
-      <Setter Property="Padding" Value="14,8"/>
+      <Setter Property="Background" Value="{StaticResource BpPanel2Brush}"/>
+      <Setter Property="Foreground" Value="{StaticResource BpTextBrush}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource BpEdgeBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="8"/>
+      <Setter Property="Padding" Value="12,7"/>
+      <Setter Property="FontSize" Value="13"/>
+    </Style>
+    <Style Selector="Button:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource BpPanel3Brush}"/>
+      <Setter Property="BorderBrush" Value="{StaticResource BpAccentDimBrush}"/>
+    </Style>
+    <!-- boutons du rail : pleine largeur, texte a gauche, aucun cadre -->
+    <Style Selector="Button.rail">
+      <Setter Property="HorizontalAlignment" Value="Stretch"/>
+      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Foreground" Value="{StaticResource BpMutedBrush}"/>
+      <Setter Property="Padding" Value="10,7"/>
+      <Setter Property="CornerRadius" Value="7"/>
+    </Style>
+    <Style Selector="Button.rail:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource BpPanel2Brush}"/>
+      <Setter Property="TextBlock.Foreground" Value="{StaticResource BpTextBrush}"/>
+    </Style>
+    <!-- boutons de mode : peints par le code, l'etat vient du bot -->
+    <Style Selector="Button.mode">
+      <Setter Property="HorizontalAlignment" Value="Stretch"/>
+      <Setter Property="HorizontalContentAlignment" Value="Left"/>
+      <Setter Property="Padding" Value="10,7"/>
+      <Setter Property="CornerRadius" Value="7"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+    <Style Selector="Button.accent">
+      <Setter Property="Background" Value="{StaticResource BpAccentBrush}"/>
+      <Setter Property="Foreground" Value="{StaticResource BpInkBrush}"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="FontWeight" Value="Bold"/>
+    </Style>
+    <Style Selector="Button.accent:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{StaticResource BpAccentDimBrush}"/>
+    </Style>
+    <!-- onglet de journal : l'actif est peint par le code -->
+    <Style Selector="Button.tab">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding" Value="11,5"/>
+      <Setter Property="CornerRadius" Value="7"/>
+      <Setter Property="FontSize" Value="11.5"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+
+    <Style Selector="CheckBox">
+      <Setter Property="Foreground" Value="{StaticResource BpTextBrush}"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="MinHeight" Value="0"/>
+    </Style>
+    <!-- verrouille = grise, sans supprimer l'element : on voit qu'il existe -->
+    <Style Selector="CheckBox:disabled">
+      <Setter Property="Opacity" Value="0.4"/>
+    </Style>
+    <Style Selector="ProgressBar">
+      <Setter Property="Foreground" Value="{StaticResource BpAccentBrush}"/>
+      <Setter Property="Background" Value="{StaticResource BpEdgeBrush}"/>
+      <Setter Property="CornerRadius" Value="3"/>
     </Style>
   </Window.Styles>
 
-  <DockPanel Margin="16">
-
-    <!-- barre de contrôle : deux rangées (actions / modes) qui s'enroulent
-         automatiquement plutôt que de déborder hors de la fenêtre -->
-    <Border DockPanel.Dock="Top" Classes="card" Margin="0,0,0,12">
-      <StackPanel Orientation="Vertical" Spacing="10">
-        <!-- actions -->
-        <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
-          <Button x:Name="UpdateBtn" Click="OnUpdate" Content="⬆ Mettre à jour"
-                  IsVisible="False" Background="#3fb950" Foreground="#0d1117"
-                  FontWeight="Bold"/>
-          <Button x:Name="StartStop" Click="OnStartStop" Content="Démarrer"/>
-          <Button x:Name="Shutdown" Click="OnShutdown" Content="Arrêter le bot"
-                  IsEnabled="False"/>
-          <Button x:Name="Spells" Click="OnSpells" Content="Sorts de combat"/>
-          <Button x:Name="OpenWeb" Click="OnOpenWeb" Content="Tableau de bord web"/>
-          <Button x:Name="Assist" Click="OnAssist" Content="Assistant de combat"/>
-          <Button x:Name="ClientDir" Click="OnClientDir" Content="Dossier du jeu"/>
-        </WrapPanel>
-        <!-- modes + état -->
-        <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
-          <TextBlock Text="MODE" Classes="k" VerticalAlignment="Center"
-                     Margin="0,0,4,0"/>
-          <Button x:Name="TabObserve" Click="OnObserve" Content="Observer"/>
-          <Button x:Name="TabHarvest" Click="OnHarvest" Content="Harvest"/>
-          <Button x:Name="TabFarm" Click="OnFarm" Content="Farming"/>
-          <Button x:Name="TabKral" Click="OnKralamoure" Content="Kralamoure"/>
-          <Border Width="1" Background="#262a33" Margin="6,2"/>
-          <CheckBox x:Name="SoulCap" Click="OnSoulToggle" Content="Capture d'âmes"
-                    Foreground="#e6e8eb" VerticalAlignment="Center"/>
-          <CheckBox x:Name="PrepMaitrise" Click="OnPrepMaitrise" Content="Maîtrise Arc"
-                    Foreground="#e6e8eb" VerticalAlignment="Center"
-                    ToolTip.Tip="Lance Maîtrise de l'Arc (180) au tour 1 — tous modes"/>
-          <CheckBox x:Name="PrepTir" Click="OnPrepTir" Content="Tir Puissant"
-                    Foreground="#e6e8eb" VerticalAlignment="Center"
-                    ToolTip.Tip="Lance Tir Puissant (166) au tour 1 — tous modes"/>
-          <CheckBox x:Name="PrepCoffre" Click="OnPrepCoffre" Content="Coffre animé"
-                    Foreground="#e6e8eb" VerticalAlignment="Center"
-                    ToolTip.Tip="Invoque le Coffre Animé (6019) au tour 1 — tous modes"/>
-          <CheckBox x:Name="ScriptKorriandre" Click="OnScriptKorriandre"
-                    Content="Script Korriandre"
-                    Foreground="#e6e8eb" VerticalAlignment="Center"
-                    ToolTip.Tip="Korriandre : évite les glyphes (ne jamais finir le tour dessus) — farming"/>
-          <Border Width="1" Background="#262a33" Margin="6,2"/>
-          <Ellipse x:Name="Dot" Width="10" Height="10" Fill="#e05561"
-                   VerticalAlignment="Center"/>
-          <TextBlock x:Name="Status" Classes="sub" VerticalAlignment="Center"
-                     Text="arrêté"/>
-        </WrapPanel>
-      </StackPanel>
+  <Panel>
+    <!-- fond atmospherique : braise en haut a droite, jamais derriere le texte -->
+    <Border>
+      <Border.Background>
+        <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+          <GradientStop Color="#0E0B0C" Offset="0"/>
+          <GradientStop Color="#141010" Offset="0.5"/>
+          <GradientStop Color="#1B1213" Offset="1"/>
+        </LinearGradientBrush>
+      </Border.Background>
+    </Border>
+    <Border Opacity="0.30" Margin="-40" IsHitTestVisible="False">
+      <Border.Background>
+        <RadialGradientBrush Center="88%,6%" RadiusX="0.55" RadiusY="0.45">
+          <GradientStop Color="#5A2A26" Offset="0"/>
+          <GradientStop Color="#00000000" Offset="1"/>
+        </RadialGradientBrush>
+      </Border.Background>
     </Border>
 
-    <!-- compteurs -->
-    <UniformGrid DockPanel.Dock="Top" Columns="6" Margin="0,0,0,12">
-      <Border x:Name="CardKills" Classes="card" Margin="0,0,6,0" IsVisible="False">
-        <StackPanel><TextBlock Classes="k" Text="MONSTRES TUÉS"/>
-          <TextBlock x:Name="Kills" Classes="v" Text="0"/>
-          <TextBlock x:Name="KillsRate" Classes="sub" TextWrapping="Wrap"/></StackPanel></Border>
-      <Border x:Name="CardXp" Classes="card" Margin="3,0" IsVisible="False">
-        <StackPanel><TextBlock Classes="k" Text="XP GAGNÉE"/>
-          <TextBlock x:Name="XpGained" Classes="v" Text="0"/>
-          <TextBlock x:Name="XpGainedRate" Classes="sub" TextWrapping="Wrap"/></StackPanel></Border>
-      <Border x:Name="CardKamas" Classes="card" Margin="3,0">
-        <StackPanel><TextBlock Classes="k" Text="KAMAS GAGNÉS"/>
-          <TextBlock x:Name="Kamas" Classes="v" Text="0"/>
-          <TextBlock x:Name="KamasRate" Classes="sub" TextWrapping="Wrap"/></StackPanel></Border>
-      <Border x:Name="CardHarvests" Classes="card" Margin="0,0,6,0">
-        <StackPanel><TextBlock Classes="k" Text="FAUCHAGES"/>
-          <TextBlock x:Name="Harvests" Classes="v" Text="0"/>
-          <TextBlock x:Name="Rate" Classes="sub" TextWrapping="Wrap"/></StackPanel></Border>
-      <Border Classes="card" Margin="3,0">
-        <StackPanel><TextBlock Classes="k" Text="COMBATS"/>
-          <TextBlock x:Name="Fights" Classes="v" Text="0"/></StackPanel></Border>
-      <Border x:Name="CardPods" Classes="card" Margin="3,0">
-        <StackPanel><TextBlock Classes="k" Text="PODS"/>
-          <TextBlock x:Name="Pods" Classes="v" Text="0"/>
-          <ProgressBar x:Name="PodsBar" Height="5" Margin="0,8,0,0" MinWidth="0"
-                       Foreground="#4a9eff" Background="#262a33"/></StackPanel></Border>
-      <Border Classes="card" Margin="3,0">
-        <StackPanel><TextBlock Classes="k" Text="NIVEAU"/>
-          <TextBlock x:Name="Level" Classes="v" Text="—"/>
-          <ProgressBar x:Name="XpBar" Height="5" Margin="0,8,0,0" MinWidth="0"
-                       Foreground="#7dd3a0" Background="#262a33"/>
-          <TextBlock x:Name="XpText" Classes="sub" TextWrapping="Wrap"/></StackPanel></Border>
-      <Border Classes="card" Margin="6,0,0,0">
-        <StackPanel><TextBlock Classes="k" Text="SESSION"/>
-          <TextBlock x:Name="Uptime" Classes="v" Text="0:00"/>
-          <TextBlock x:Name="MapId" Classes="sub"/></StackPanel></Border>
-    </UniformGrid>
+    <Grid ColumnDefinitions="214,14,*" Margin="16">
 
-    <!-- trace brute du bot, sous les deux colonnes -->
-    <Border DockPanel.Dock="Bottom" Classes="card" Margin="0,12,0,0" Height="150">
-      <DockPanel>
-        <TextBlock DockPanel.Dock="Top" Classes="k" Text="TRACE" Margin="0,0,0,6"/>
-        <ScrollViewer>
-          <ItemsControl x:Name="Logs">
-            <ItemsControl.ItemTemplate><DataTemplate x:DataType="local:LogRow">
-              <Grid ColumnDefinitions="Auto,*">
-                <TextBlock Text="{Binding Time}" Classes="sub" Width="58"/>
-                <TextBlock Grid.Column="1" Text="{Binding Text}"
-                           Foreground="#9aa4b2" FontSize="12" TextWrapping="Wrap"/>
-              </Grid>
-            </DataTemplate></ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </ScrollViewer>
-      </DockPanel>
-    </Border>
-
-    <Grid ColumnDefinitions="*,12,*">
-
-      <Border Grid.Column="0" Classes="card">
+      <!-- ══ rail : tout ce qui agit ══ -->
+      <Border Grid.Column="0" Classes="card" Padding="12">
         <DockPanel>
-          <TextBlock x:Name="JobsTitle" DockPanel.Dock="Top" Classes="k"
-                     Text="MÉTIERS" Margin="0,0,0,8"/>
-          <ItemsControl x:Name="Jobs" DockPanel.Dock="Top" Margin="0,0,0,14">
-            <ItemsControl.ItemTemplate><DataTemplate x:DataType="local:JobRow">
-              <StackPanel Margin="0,0,0,8">
-                <Grid ColumnDefinitions="*,Auto">
-                  <TextBlock Text="{Binding Name}" Foreground="#e6e8eb"/>
-                  <TextBlock Grid.Column="1" Classes="sub" Text="{Binding Detail}"/>
-                </Grid>
-                <ProgressBar Value="{Binding Pct}" Height="5" Margin="0,4,0,0" MinWidth="0"
-                             Foreground="#ffb454" Background="#262a33"/>
+
+          <StackPanel DockPanel.Dock="Top" Spacing="14">
+            <StackPanel Orientation="Horizontal" Spacing="9">
+              <TextBlock Text="◆" FontSize="15" VerticalAlignment="Center"
+                         Foreground="{StaticResource BpAccentBrush}"/>
+              <StackPanel>
+                <TextBlock Text="Bot Paradox" FontSize="18" FontWeight="Bold"
+                           Foreground="{StaticResource BpAccentBrush}"/>
+                <TextBlock Text="pilotage · combat · loot" Classes="sub" FontSize="10.5"/>
               </StackPanel>
-            </DataTemplate></ItemsControl.ItemTemplate>
-          </ItemsControl>
+            </StackPanel>
 
-          <TextBlock DockPanel.Dock="Top" Classes="k" Text="OBJETS RAMASSÉS"
-                     Margin="0,0,0,8"/>
-          <ItemsControl x:Name="Items">
-            <ItemsControl.ItemTemplate><DataTemplate x:DataType="local:ItemRow">
-              <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,3">
-                <Image Source="{Binding Icon}" Width="22" Height="22"
-                       Margin="0,0,8,0"/>
-                <TextBlock Grid.Column="1" Text="{Binding Name}"
-                           Foreground="#e6e8eb" VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="2" Text="{Binding Gained}"
-                           Foreground="#7dd3a0" VerticalAlignment="Center"/>
+            <Border Classes="rule"/>
+
+            <StackPanel Spacing="5">
+              <TextBlock Text="PILOTAGE" Classes="k" Margin="10,0,0,2"/>
+              <Button x:Name="StartStop" Click="OnStartStop" Classes="rail"
+                      Content="Démarrer"/>
+              <Button x:Name="Shutdown" Click="OnShutdown" Classes="rail"
+                      Content="Arrêter le bot" IsEnabled="False"/>
+            </StackPanel>
+
+            <StackPanel Spacing="5">
+              <TextBlock Text="MODE" Classes="k" Margin="10,0,0,2"/>
+              <Button x:Name="TabObserve" Click="OnObserve" Classes="mode"
+                      Content="Observer"
+                      ToolTip.Tip="Le bot ne joue pas : tu joues, il compte le loot et applique l'assistance cochée."/>
+              <Button x:Name="TabFarm" Click="OnFarm" Classes="mode" Content="Farming"
+                      ToolTip.Tip="Le bot enchaîne les combats tout seul."/>
+              <Button x:Name="TabKral" Click="OnKralamoure" Classes="mode"
+                      Content="Kralamoure"
+                      ToolTip.Tip="Combat scripté du Kralamoure Géant (placement fixe)."/>
+            </StackPanel>
+
+            <StackPanel Spacing="5">
+              <TextBlock Text="OUTILS" Classes="k" Margin="10,0,0,2"/>
+              <Button x:Name="Spells" Click="OnSpells" Classes="rail"
+                      Content="Sorts de combat"/>
+              <Button x:Name="OpenWeb" Click="OnOpenWeb" Classes="rail"
+                      Content="Dashboard web"/>
+              <Button x:Name="Assist" Click="OnAssist" Classes="rail"
+                      Content="Assistant de combat"/>
+              <Button x:Name="ClientDir" Click="OnClientDir" Classes="rail"
+                      Content="Dossier du jeu"/>
+            </StackPanel>
+          </StackPanel>
+
+          <StackPanel DockPanel.Dock="Bottom" Spacing="8">
+            <Button x:Name="UpdateBtn" Click="OnUpdate" Content="⬆ Mettre à jour"
+                    IsVisible="False" Classes="accent"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
+          </StackPanel>
+
+          <Panel/>
+        </DockPanel>
+      </Border>
+
+      <!-- ══ colonne droite : tout ce qui se lit ══ -->
+      <DockPanel Grid.Column="2">
+
+        <!-- bandeau d'etat : une seule ligne pour etat / niveau / session -->
+        <Border DockPanel.Dock="Top" Classes="card" Padding="14,11" Margin="0,0,0,7">
+          <Grid ColumnDefinitions="Auto,20,*,20,Auto">
+            <StackPanel Orientation="Horizontal" Spacing="9" VerticalAlignment="Center">
+              <Ellipse x:Name="Dot" Width="10" Height="10" Fill="#E8574F"
+                       VerticalAlignment="Center">
+                <Ellipse.Transitions>
+                  <Transitions>
+                    <BrushTransition Property="Fill" Duration="0:0:0.35"/>
+                  </Transitions>
+                </Ellipse.Transitions>
+              </Ellipse>
+              <TextBlock x:Name="Status" VerticalAlignment="Center" FontSize="13"
+                         Foreground="{StaticResource BpTextBrush}"
+                         Text="arrêté" MinWidth="190"/>
+            </StackPanel>
+
+            <Border Grid.Column="1" Width="1" Background="{StaticResource BpEdgeBrush}"
+                    Margin="0,2"/>
+
+            <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="4">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="NIVEAU" Classes="k" VerticalAlignment="Center"/>
+                <TextBlock x:Name="Level" Text="—" FontSize="15" FontWeight="SemiBold"
+                           Foreground="{StaticResource BpTextBrush}"/>
+                <TextBlock x:Name="LevelGain" Classes="sub" VerticalAlignment="Center"
+                           Foreground="{StaticResource BpOkBrush}"/>
+                <TextBlock x:Name="XpText" Classes="sub" VerticalAlignment="Center"/>
+              </StackPanel>
+              <ProgressBar x:Name="XpBar" Height="4" MinWidth="0"/>
+            </StackPanel>
+
+            <Border Grid.Column="3" Width="1" Background="{StaticResource BpEdgeBrush}"
+                    Margin="0,2"/>
+
+            <StackPanel Grid.Column="4" VerticalAlignment="Center">
+              <TextBlock Text="SESSION" Classes="k"/>
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock x:Name="Uptime" Text="0:00:00" FontSize="15"
+                           FontWeight="SemiBold" Foreground="{StaticResource BpTextBrush}"/>
+                <TextBlock x:Name="MapId" Classes="sub" VerticalAlignment="Center"/>
+              </StackPanel>
+            </StackPanel>
+          </Grid>
+        </Border>
+
+        <!-- compteurs : 3 x 2, toujours visibles (en Observer aussi les
+             combats du joueur comptent) -->
+        <UniformGrid DockPanel.Dock="Top" Columns="3" Margin="-5,0,-5,7">
+          <Border Classes="stat">
+            <StackPanel>
+              <TextBlock Classes="k" Text="KAMAS INVENTAIRE"/>
+              <TextBlock x:Name="InvKamas" Classes="v" Text="0"
+                         Foreground="{StaticResource BpKamasBrush}"/>
+              <TextBlock Classes="sub" Text="en sac"/>
+            </StackPanel>
+          </Border>
+          <Border Classes="stat">
+            <StackPanel>
+              <TextBlock Classes="k" Text="KAMAS SESSION"/>
+              <TextBlock x:Name="Kamas" Classes="v" Text="0"/>
+              <TextBlock x:Name="KamasRate" Classes="sub" TextWrapping="Wrap"/>
+            </StackPanel>
+          </Border>
+          <Border Classes="stat">
+            <StackPanel>
+              <TextBlock Classes="k" Text="XP SESSION"/>
+              <TextBlock x:Name="XpGained" Classes="v" Text="0"/>
+              <TextBlock x:Name="XpGainedRate" Classes="sub" TextWrapping="Wrap"/>
+            </StackPanel>
+          </Border>
+          <Border Classes="stat">
+            <StackPanel>
+              <TextBlock Classes="k" Text="MONSTRES"/>
+              <TextBlock x:Name="Kills" Classes="v" Text="0"/>
+              <TextBlock x:Name="KillsRate" Classes="sub" TextWrapping="Wrap"/>
+            </StackPanel>
+          </Border>
+          <Border Classes="stat">
+            <StackPanel>
+              <TextBlock Classes="k" Text="COMBATS"/>
+              <TextBlock x:Name="Fights" Classes="v" Text="0"/>
+              <TextBlock x:Name="FightsSub" Classes="sub"/>
+            </StackPanel>
+          </Border>
+          <Border Classes="stat">
+            <StackPanel>
+              <TextBlock Classes="k" Text="PODS"/>
+              <TextBlock x:Name="Pods" Classes="v" Text="0"/>
+              <ProgressBar x:Name="PodsBar" Height="4" Margin="0,7,0,0" MinWidth="0"
+                           Foreground="{StaticResource BpOkBrush}"/>
+            </StackPanel>
+          </Border>
+        </UniformGrid>
+
+        <!-- journal / trace : un seul bloc, deux onglets -->
+        <Border DockPanel.Dock="Bottom" Classes="card" Margin="0,7,0,0" Height="168"
+                Padding="14,11">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6"
+                        Margin="0,0,0,8">
+              <Button x:Name="TabJournal" Classes="tab" Click="OnTabJournal"
+                      Content="Journal"/>
+              <Button x:Name="TabTrace" Classes="tab" Click="OnTabTrace"
+                      Content="Trace"/>
+            </StackPanel>
+
+            <ScrollViewer x:Name="JournalView">
+              <ItemsControl x:Name="Events">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="local:EventRow">
+                    <Grid ColumnDefinitions="Auto,Auto,*" Margin="0,2">
+                      <TextBlock Text="{Binding Time}" Classes="sub"
+                                 Width="60" VerticalAlignment="Center"/>
+                      <Image Grid.Column="1" Source="{Binding Icon}"
+                             Width="16" Height="16" Margin="0,0,6,0"/>
+                      <TextBlock Grid.Column="2" Text="{Binding Text}"
+                                 Foreground="{Binding Colour}"
+                                 VerticalAlignment="Center" TextWrapping="Wrap"/>
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+
+            <ScrollViewer x:Name="TraceView" IsVisible="False">
+              <ItemsControl x:Name="Logs">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="local:LogRow">
+                    <Grid ColumnDefinitions="Auto,*" Margin="0,1">
+                      <TextBlock Text="{Binding Time}" Classes="sub" Width="60"/>
+                      <TextBlock Grid.Column="1" Text="{Binding Text}"
+                                 Foreground="{StaticResource BpMutedBrush}"
+                                 FontSize="12" TextWrapping="Wrap"/>
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </DockPanel>
+        </Border>
+
+        <!-- assistance de combat + loot -->
+        <Grid ColumnDefinitions="352,12,*">
+
+          <!-- ClipToBounds + defilement : sur une petite fenetre la carte se
+               contente de defiler au lieu de deborder sur le journal. -->
+          <Border Grid.Column="0" Classes="card" ClipToBounds="True">
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="11">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="ASSISTANCE DE COMBAT" Classes="h"
+                           VerticalAlignment="Center"/>
+                <TextBlock x:Name="AssistMode" Grid.Column="1" Classes="tag"
+                           Text="mode : —"/>
               </Grid>
-            </DataTemplate></ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </DockPanel>
-      </Border>
 
-      <Border Grid.Column="2" Classes="card">
-        <DockPanel>
-          <TextBlock DockPanel.Dock="Top" Classes="k" Text="JOURNAL"
-                     Margin="0,0,0,8"/>
-          <ScrollViewer>
-            <ItemsControl x:Name="Events">
-              <ItemsControl.ItemTemplate><DataTemplate x:DataType="local:EventRow">
-                <Grid ColumnDefinitions="Auto,Auto,*" Margin="0,2">
-                  <TextBlock Text="{Binding Time}" Classes="sub"
-                             Width="58" VerticalAlignment="Center"/>
-                  <Image Grid.Column="1" Source="{Binding Icon}"
-                         Width="16" Height="16" Margin="0,0,6,0"/>
-                  <TextBlock Grid.Column="2" Text="{Binding Text}"
-                             Foreground="{Binding Colour}"
-                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+              <StackPanel Spacing="6">
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Text="PREP TOUR 1" Classes="k" VerticalAlignment="Center"
+                             Foreground="{StaticResource BpAccentDimBrush}"/>
+                  <TextBlock Grid.Column="1" Classes="tag" Text="Observer + Farming"/>
                 </Grid>
-              </DataTemplate></ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </ScrollViewer>
-        </DockPanel>
-      </Border>
+                <CheckBox x:Name="PrepMaitrise" Click="OnPrepMaitrise"
+                          Content="Maîtrise de l'Arc"
+                          ToolTip.Tip="Sort 180, lancé sur soi au tour 1"/>
+                <CheckBox x:Name="PrepTir" Click="OnPrepTir" Content="Tir Puissant"
+                          ToolTip.Tip="Sort 166, lancé sur soi au tour 1"/>
+                <CheckBox x:Name="PrepCoffre" Click="OnPrepCoffre" Content="Coffre animé"
+                          ToolTip.Tip="Sort 6019, invoqué au tour 1 sur une case libre"/>
+              </StackPanel>
+
+              <Border Classes="rule"/>
+
+              <StackPanel Spacing="6">
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Text="BOSS" Classes="k" VerticalAlignment="Center"
+                             Foreground="{StaticResource BpAccentDimBrush}"/>
+                  <TextBlock Grid.Column="1" Classes="tag" Text="Observer + Farming"/>
+                </Grid>
+                <CheckBox x:Name="SoulCap" Click="OnSoulToggle" Content="Capture d'âmes"
+                          ToolTip.Tip="Sort 413, en début de tour, seulement si un vrai boss de donjon est présent"/>
+              </StackPanel>
+
+              <Border Classes="rule"/>
+
+              <StackPanel Spacing="6">
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock Text="SCRIPTS" Classes="k" VerticalAlignment="Center"
+                             Foreground="{StaticResource BpAccentDimBrush}"/>
+                  <TextBlock Grid.Column="1" Classes="tag" Text="bot aux commandes"/>
+                </Grid>
+                <CheckBox x:Name="ScriptKorriandre" Click="OnScriptKorriandre"
+                          Content="Script Korriandre"
+                          ToolTip.Tip="Évite les glyphes GDZ et se dégage avant de finir le tour"/>
+                <TextBlock x:Name="KorriHint" Classes="sub" IsVisible="False"
+                           TextWrapping="Wrap" FontSize="11"
+                           Foreground="{StaticResource BpFaintBrush}"
+                           Text="🔒 sans effet en Observer : le bot ne se déplace pas."/>
+              </StackPanel>
+            </StackPanel>
+            </ScrollViewer>
+          </Border>
+
+          <Border Grid.Column="2" Classes="card">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Top" Classes="h" Text="OBJETS RAMASSÉS"
+                         Margin="0,0,0,9"/>
+              <ScrollViewer>
+                <ItemsControl x:Name="Items">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="local:ItemRow">
+                      <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,3">
+                        <Image Source="{Binding Icon}" Width="22" Height="22"
+                               Margin="0,0,8,0"/>
+                        <TextBlock Grid.Column="1" Text="{Binding Name}"
+                                   Foreground="{StaticResource BpTextBrush}"
+                                   TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" Text="{Binding Gained}"
+                                   Foreground="{StaticResource BpOkBrush}"
+                                   VerticalAlignment="Center"/>
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+            </DockPanel>
+          </Border>
+        </Grid>
+      </DockPanel>
     </Grid>
-  </DockPanel>
+  </Panel>
 </Window>

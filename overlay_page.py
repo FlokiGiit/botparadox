@@ -4,71 +4,95 @@ Chargee depuis 127.0.0.1:8765, donc same-origin avec le bot : elle interroge
 /stats et /craft/* et affiche /icon sans se heurter a la CSP du client, qui
 bloquerait tout acces reseau depuis l'interieur du jeu.
 
-Deux onglets : Loot (bilan de session + loot rare, lecture seule) et Fusion
-(recherche d'items a fusionner + arbre de fabrication avec fusion directe).
+Deux onglets : Loot (bilan + loot rare) et Fusion (recherche + arbre).
 """
 
 OVERLAY_PAGE = """<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <title>Bot Paradox</title><style>
 *{box-sizing:border-box;margin:0}
-body{font:13px system-ui,sans-serif;color:#e6e8eb;padding:8px;background:transparent}
-.tabs{display:flex;gap:6px;margin-bottom:10px}
-.tabs b{flex:1;text-align:center;padding:7px;border-radius:7px;cursor:pointer;
-        background:rgba(28,31,38,.92);color:#7d8797;font-weight:600;font-size:12px}
-.tabs b.on{background:#4a9eff;color:#0d1117}
-.sum{display:flex;gap:6px;margin-bottom:12px}
-.stat{flex:1;background:rgba(28,31,38,.92);border-radius:8px;padding:8px 6px;
-      text-align:center;border-top:2px solid #444}
-.stat .ic{font-size:16px;line-height:1}
-.stat .val{font-size:15px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums}
-.stat .lbl{font-size:9px;color:#7d8797;text-transform:uppercase}
-.stat.xp{border-top-color:#7dd3a0}.stat.xp .val{color:#7dd3a0}
-.stat.kam{border-top-color:#ffd166}.stat.kam .val{color:#ffd166}
-.stat.lvl{border-top-color:#c084fc}.stat.lvl .val{color:#c084fc}
-.stat.jet{border-top-color:#e0a458}.stat.jet .val{color:#e0a458}
-h1{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#7d8797;
-   margin:12px 0 8px;text-shadow:0 1px 3px #000}
-.row{display:flex;align-items:center;gap:8px;padding:6px 8px;margin-bottom:5px;
-     border-radius:8px;background:rgba(28,31,38,.95)}
-.row img{width:26px;height:26px;object-fit:contain;flex:none}
-.row .n{flex:1;font-weight:600;line-height:1.1;font-size:12px}
+:root{
+  --bg:rgba(14,11,12,.94); --panel:rgba(31,24,25,.96); --panel2:rgba(39,31,32,.96);
+  --edge:#2a2022; --text:#ece6e5; --muted:#9a8c8b; --faint:#6b5f5f;
+  --accent:#c4675f; --accent2:#8e4640; --ok:#86b48f; --bad:#e8574f;
+  --xp:#86b48f; --kam:#d9a85c; --lvl:#c9a0e8; --ink:#150f0f;
+}
+body{font:12.5px/1.35 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+     color:var(--text);padding:9px;background:transparent}
+/* onglets collants : la liste de loot peut defiler, la navigation reste la */
+.tabs{display:flex;gap:5px;margin-bottom:9px;position:sticky;top:-9px;z-index:5;
+      padding:9px 0 6px;background:linear-gradient(180deg,rgba(14,11,12,.96) 70%,transparent)}
+.tabs b{flex:1;text-align:center;padding:7px;border-radius:8px;cursor:pointer;
+        background:var(--panel);color:var(--muted);font-weight:700;font-size:11px;
+        letter-spacing:.06em;text-transform:uppercase;
+        border:1px solid var(--edge);transition:background .18s,color .18s,border-color .18s}
+.tabs b:hover{color:var(--text)}
+.tabs b.on{background:linear-gradient(180deg,#3a2422,#2a1c1c);color:var(--accent);
+           border-color:var(--accent2)}
+.sum{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:2px}
+.stat{background:var(--panel);border-radius:9px;padding:7px 8px 6px;
+      border:1px solid var(--edge);position:relative;overflow:hidden}
+.stat::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--edge)}
+.stat .lbl{font-size:9px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em;
+           font-weight:600}
+.stat .val{font-size:16px;font-weight:700;margin-top:2px;font-variant-numeric:tabular-nums}
+.stat.xp::before{background:var(--xp)}.stat.xp .val{color:var(--xp)}
+.stat.kam::before{background:var(--kam)}.stat.kam .val{color:var(--kam)}
+.stat.inv::before{background:var(--kam)}.stat.inv .val{color:var(--kam)}
+.stat.lvl::before{background:var(--lvl)}.stat.lvl .val{color:var(--lvl)}
+.stat .sub{font-size:10px;color:var(--faint);margin-top:1px}
+h1{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);
+   font-weight:700;margin:13px 0 7px;display:flex;align-items:center;gap:7px}
+h1::after{content:"";flex:1;height:1px;background:var(--edge)}
+.row{display:flex;align-items:center;gap:8px;padding:6px 8px;margin-bottom:4px;
+     border-radius:8px;background:var(--panel);border:1px solid var(--edge);
+     animation:fadeIn .25s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+.row img{width:25px;height:25px;object-fit:contain;flex:none}
+.row .n{flex:1;font-weight:600;line-height:1.15;font-size:12px}
 .row .q{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
-.dofus{border-left:3px solid #ffd166}.dofus .q{color:#ffd166}
-.relique{border-left:3px solid #c084fc}.relique .q{color:#c084fc}
-.energie{border-left:3px solid #4a9eff}.energie .q{color:#4a9eff}
-.cat{font-size:9px;color:#7d8797;text-transform:uppercase}
-input,select{width:100%;padding:8px;border-radius:7px;border:1px solid #333;
-      background:#12141a;color:#e6e8eb;font:inherit;margin-bottom:6px}
-.go{width:100%;padding:9px;border:0;border-radius:7px;cursor:pointer;
-    background:#4a9eff;color:#0d1117;font-weight:700;font-size:13px}
-.go:hover{background:#63adff}
-.res{max-height:180px;overflow-y:auto}
-.res .row{cursor:pointer}.res .row:hover{background:#2a2f3a}
-.tgt{border-left:3px solid #4a9eff}
-.tgt .x{cursor:pointer;color:#e05561;font-weight:700;padding:0 4px}
-.have{color:#7dd3a0}.miss{color:#e05561}
+.dofus{border-left:3px solid #e8c98a}.dofus .q{color:#e8c98a}
+.relique{border-left:3px solid #c9a0e8}.relique .q{color:#c9a0e8}
+.energie{border-left:3px solid #7fa6c9}.energie .q{color:#7fa6c9}
+.essence{border-left:3px solid var(--ok)}.essence .q{color:var(--ok)}
+.box{border-left:3px solid var(--accent)}.box .q{color:var(--accent)}
+.cat{font-size:9px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em}
+input,select{width:100%;padding:8px 9px;border-radius:8px;border:1px solid var(--edge);
+      background:rgba(14,11,12,.9);color:var(--text);font:inherit;margin-bottom:6px}
+input:focus{outline:none;border-color:var(--accent)}
+input::placeholder{color:var(--faint)}
+.go{width:100%;padding:9px;border:0;border-radius:8px;cursor:pointer;
+    background:linear-gradient(180deg,#c4675f,#8e4640);color:var(--ink);font-weight:700}
+.res{max-height:170px;overflow-y:auto}
+.res .row{cursor:pointer}.res .row:hover{border-color:var(--accent)}
+.tgt{border-left:3px solid var(--accent)}
+.tgt .x{cursor:pointer;color:var(--muted);font-weight:700;padding:0 4px}
+.tgt .x:hover{color:var(--accent)}
+.have{color:var(--ok)}.miss{color:var(--bad)}
 .done{opacity:.45}
-.cr{font-size:8px;color:#4a9eff;text-transform:uppercase;margin-left:4px}
-.bk{font-size:12px;color:#0d1117;background:#79c0ff;border-radius:7px;
-    padding:1px 6px;margin:0 5px;font-weight:700;font-variant-numeric:tabular-nums;
-    white-space:nowrap}
-.node{border-left:2px solid #262a33}
-.node.cl{cursor:pointer}.chev{width:12px;flex:none;color:#7d8797;font-size:9px}
-.fuse{cursor:pointer;background:#4a9eff;color:#0d1117;font-weight:700;border-radius:5px;padding:2px 7px;font-size:11px;margin-left:6px}
-.empty{color:#5f6875;text-align:center;padding:14px;font-size:11px}
+.cr{font-size:8px;color:var(--accent);text-transform:uppercase;margin-left:4px}
+.node{border-left:2px solid var(--edge)}
+.node.cl{cursor:pointer}.chev{width:12px;flex:none;color:var(--faint);font-size:9px}
+.fuse{cursor:pointer;background:var(--accent);color:var(--ink);font-weight:700;border-radius:5px;
+      padding:2px 7px;font-size:11px;margin-left:6px}
+.fuse:hover{background:var(--accent2);color:var(--text)}
+.empty{color:var(--faint);text-align:center;padding:13px;font-size:11px}
+::-webkit-scrollbar{width:8px}
+::-webkit-scrollbar-thumb{background:var(--panel2);border-radius:4px}
+::-webkit-scrollbar-thumb:hover{background:var(--accent2)}
+::-webkit-scrollbar-track{background:transparent}
 </style></head><body>
 <div class="tabs">
   <b id="tabLoot" class="on" onclick="show('loot')">Loot</b>
   <b id="tabFus" onclick="show('fus')">Fusion</b>
-  <b id="tabRec" onclick="show('rec')">Récolte</b>
 </div>
 
 <div id="loot">
   <div class="sum">
-    <div class="stat xp"><div class="ic">&#10022;</div><div class="val" id="sxp">0</div><div class="lbl">XP</div></div>
-    <div class="stat kam"><div class="ic">&#9673;</div><div class="val" id="skam">0</div><div class="lbl">Kamas</div></div>
-    <div class="stat lvl"><div class="ic">&#9650;</div><div class="val" id="slvl">0</div><div class="lbl">Niveaux</div></div>
-    <div class="stat jet"><div class="ic">&#129689;</div><div class="val" id="sjet">0</div><div class="lbl">Jetons</div></div>
+    <div class="stat inv"><div class="lbl">Kamas inventaire</div><div class="val" id="sinv">0</div></div>
+    <div class="stat lvl"><div class="lbl">Niveau</div><div class="val" id="slvl">—</div>
+      <div class="sub" id="slvlsub">session +0</div></div>
+    <div class="stat xp"><div class="lbl">XP session</div><div class="val" id="sxp">0</div></div>
+    <div class="stat kam"><div class="lbl">Kamas session</div><div class="val" id="skam">0</div></div>
   </div>
   <h1>Loot rare</h1>
   <div id="rareList"></div>
@@ -83,36 +107,32 @@ input,select{width:100%;padding:8px;border-radius:7px;border:1px solid #333;
   <div id="detail"></div>
 </div>
 
-<div id="rec" style="display:none">
-  <h1>Métiers à récolter</h1>
-  <div id="recList"></div>
-  <div class="empty" style="margin-top:6px">Coché = le bot récolte ce métier
-    (avec le bon outil). Rien coché = tous.</div>
-</div>
-
 <script>
-const label={dofus:"Dofus",relique:"Relique",energie:"Energie"};
+const label={dofus:"Dofus",relique:"Relique",energie:"Energie",essence:"Essence",box:"Box"};
 function compact(n){
+  if(n==null||n===undefined)return "0";
+  n=+n;
   if(n>=1e9)return (n/1e9).toFixed(1)+"Md";
   if(n>=1e6)return (n/1e6).toFixed(1)+"M";
   if(n>=1e3)return (n/1e3).toFixed(1)+"k";
   return String(n);
 }
+// L'onglet actif est memorise : cette page est servie par le bot, donc son
+// localStorage survit au relancement du client (qui vide le sien).
 function show(t){
-  ['loot','fus','rec'].forEach(function(x){
+  ['loot','fus'].forEach(function(x){
     document.getElementById(x).style.display=x===t?'':'none';
     document.getElementById('tab'+x[0].toUpperCase()+x.slice(1)).className=x===t?'on':'';
   });
+  try{localStorage.setItem('botov_tab',t);}catch(e){}
 }
+try{var _t=localStorage.getItem('botov_tab');if(_t==='fus')show('fus');}catch(e){}
 const img=g=>g?`<img src="/icon/${g}" alt="">`:'<div style="width:26px"></div>';
-// N'ecrit dans un conteneur que si son HTML a change : sinon les <img> se
-// rechargeraient a chaque rafraichissement, d'ou un clignotement.
 function paint(id,html){
   const el=document.getElementById(id);
   if(el && el._h!==html){ el.innerHTML=html; el._h=html; }
 }
 
-// ── recherche (debounce) ──
 let deb;
 function searchDeb(){ clearTimeout(deb); deb=setTimeout(search,250); }
 async function search(){
@@ -138,19 +158,17 @@ async function fuse(id,ev){
 }
 async function setQty(id,q){ try{ await fetch('/craft/set/'+id+'/'+q); tick(); }catch(e){} }
 
-// ── arbre pliable ──
 let treeCache=[];
-const expanded=new Set();   // indices deplies (par defaut : tout replie)
+const expanded=new Set();
 function toggle(i){ expanded.has(i)?expanded.delete(i):expanded.add(i); renderTree(); }
 function renderTree(){
   let cut=Infinity, html="";
   treeCache.forEach((n,i)=>{
-    if(n.depth>cut) return;          // masque : un ancetre est replie
+    if(n.depth>cut) return;
     cut=Infinity;
-    // A-t-il des enfants ? (le noeud suivant est plus profond)
     const kids=n.craftable && treeCache[i+1] && treeCache[i+1].depth>n.depth;
     const open=expanded.has(i);
-    if(kids && !open) cut=n.depth;   // replie : on masque ses descendants
+    if(kids && !open) cut=n.depth;
     const ok=n.have>=n.need, sz=Math.max(10,13-n.depth);
     const chev=kids?(open?"▾":"▸"):"";
     html+=`<div class="row node ${ok?'done':''} ${kids?'cl':''}" `
@@ -158,7 +176,6 @@ function renderTree(){
       +`style="margin-left:${n.depth*13}px;font-size:${sz}px">`
       +`<span class="chev">${chev}</span>${img(n.gfx)}`
       +`<span class="n">${n.name}${n.craftable?'<span class="cr">craft</span>':''}</span>`
-      +(n.bank?`<span class="bk" title="${n.bank} en banque">&#127974;${n.bank}</span>`:"")
       +`<span class="q ${ok?'have':'miss'}">${n.have}/${n.need}</span>`
       +(n.canfuse?`<span class="fuse" onclick="fuse(${n.id},event)">Fusionner</span>`:"")
       +`</div>`;
@@ -169,17 +186,16 @@ function renderTree(){
 async function tick(){
   let d;
   try{ d=await (await fetch("/stats")).json(); }catch(e){ return; }
-  // bilan
-  document.getElementById("sxp").textContent=compact(d.session_xp||0);
+  document.getElementById("sinv").textContent=compact(d.kamas||0);
   document.getElementById("skam").textContent=compact(d.session_kamas||0);
-  document.getElementById("slvl").textContent="+"+(d.session_levels||0);
-  document.getElementById("sjet").textContent="+"+compact(d.prestige||0);
-  // loot rare
+  document.getElementById("sxp").textContent=compact(d.session_xp||0);
+  const lvl=d.level;
+  document.getElementById("slvl").textContent=(lvl==null||lvl==="")?"—":String(lvl);
+  document.getElementById("slvlsub").textContent="session +"+(d.session_levels||0);
   const rare=d.rare||[];
   paint("rareList", rare.length ? rare.map(i=>
     `<div class="row ${i.cat}">${img(i.gfx)}<div class="n">${i.name}<div class="cat">${label[i.cat]||""}</div></div><div class="q">x${i.gained}</div></div>`
   ).join("") : '<div class="empty">aucun loot rare</div>');
-  // fusion
   const c=d.craft||{targets:[],tree:[]};
   paint("targets", c.targets.length ? c.targets.map(t=>
     `<div class="row tgt">${img(t.gfx)}<span class="n">${t.name}</span>`
@@ -191,20 +207,5 @@ async function tick(){
   treeCache=c.tree||[];
   renderTree();
 }
-// ── recolte : selection des metiers ──
-async function loadHarvest(){
-  let d; try{ d=await (await fetch('/harvest/jobs')).json(); }catch(e){ return; }
-  const sel=new Set(d.selected||[]);
-  document.getElementById('recList').innerHTML=(d.jobs||[]).map(j=>
-    `<label class="row" style="cursor:pointer">`
-    +`<input type="checkbox" ${sel.has(j)?'checked':''} data-j="${j}" `
-    +`onchange="toggleHarvest(this.dataset.j)" style="width:auto;margin:0 8px 0 0">`
-    +`<span class="n">${j}</span></label>`
-  ).join('')||'<div class="empty">aucun metier</div>';
-}
-async function toggleHarvest(j){
-  try{ await fetch('/harvest/toggle/'+encodeURIComponent(j)); }catch(e){}
-}
-loadHarvest();
 tick();setInterval(tick,1500);
 </script></body></html>"""

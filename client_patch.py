@@ -18,68 +18,154 @@ import re
 from client_config import CLIENT_HTML
 
 ORIGIN = "http://127.0.0.1:8765"
-VERSION = 15   # a incrementer si le bloc ci-dessous change
+VERSION = 17   # a incrementer si le bloc ci-dessous change
 
 # L'overlay est un conteneur deplacable (barre du haut) et redimensionnable
-# (poignee en bas a gauche). La geometrie est memorisee dans localStorage, et
-# re-bornee a chaque chargement pour rester a l'ecran quelle que soit la
-# resolution — ce qui remplace la hauteur fixe qui dependait de l'ecran.
+# (poignee en bas a gauche), avec verrou, repli et opacite.
+#
+# PERSISTANCE — le point qui cassait la position a chaque relance : la
+# geometrie VOULUE (`want`) est la seule verite, et elle n'est ecrite QUE sur
+# geste utilisateur. Un redimensionnement de la fenetre du jeu ne fait que
+# re-borner l'affichage (`paint`), sans jamais toucher a ce qui est memorise.
+# Avant, le client s'ouvrait petit, `clamp()` rabotait la position, l'event
+# `resize` sauvait la version rabotee, et l'overlay derivait vers le haut a
+# gauche — pire, quand le bot n'ecoutait pas encore, le defaut ecrasait le
+# fichier. On memorise aussi la resolution : sur un autre ecran la position est
+# reproportionnee au lieu d'etre plaquee contre le bord.
+#
+# Persistance serveur obligatoire : le client efface localStorage au lancement.
 # L'iframe passe en pointer-events:none pendant un glisser pour que la souris
 # atteigne la page du jeu (l'iframe est cross-origin).
 _TEMPLATE = """
 <!-- LOOT_OVERLAY v__V__ START -->
 <div id="botov">
-  <div id="botovbar">&#9776; Bot Paradox<span id="botovreset" title="Replacer">&#8634;</span></div>
+  <div id="botovbar">
+    <span class="bp-mark">◆</span><span class="bp-name">Bot Paradox</span>
+    <span class="bp-btns">
+      <i id="botovop" title="Opacité">◐</i>
+      <i id="botovlock" title="Verrouiller la position">&#128275;</i>
+      <i id="botovmin" title="Replier (Alt+B pour masquer)">▬</i>
+      <i id="botovreset" title="Replacer">↻</i>
+    </span>
+  </div>
   <iframe id="botovframe" src="__ORIGIN__/overlay"
           style="flex:1;width:100%;border:0;background:transparent"></iframe>
   <div id="botovgrip" title="Redimensionner"></div>
 </div>
 <style>
 #botov{position:fixed;z-index:2147483000;display:flex;flex-direction:column;
-       min-width:180px;min-height:140px;box-shadow:0 0 0 1px rgba(74,158,255,.25)}
-#botovbar{height:20px;flex:none;cursor:move;user-select:none;display:flex;
-          align-items:center;gap:6px;padding:0 6px;background:rgba(20,22,26,.92);
-          color:#7d8797;font:600 11px system-ui,sans-serif}
-#botovbar #botovreset{margin-left:auto;cursor:pointer;color:#4a9eff;font-size:13px}
-#botovgrip{position:absolute;left:0;bottom:0;width:16px;height:16px;
-           cursor:nesw-resize;background:linear-gradient(45deg,#4a9eff 45%,transparent 45%)}
+       min-width:220px;min-height:150px;border-radius:11px;overflow:hidden;
+       background:rgba(14,11,12,.55);transition:opacity .15s;
+       box-shadow:0 14px 44px rgba(0,0,0,.5),0 0 0 1px rgba(196,103,95,.30)}
+#botov.bp-mini{min-height:0;height:auto!important}
+#botov.bp-mini #botovframe,#botov.bp-mini #botovgrip{display:none}
+#botovbar{height:27px;flex:none;cursor:move;user-select:none;display:flex;
+          align-items:center;gap:7px;padding:0 4px 0 9px;
+          background:linear-gradient(180deg,rgba(39,31,32,.97),rgba(23,18,19,.97));
+          color:#c9b3b1;font:600 11px "Segoe UI",system-ui,sans-serif;
+          border-bottom:1px solid rgba(196,103,95,.22)}
+#botov.bp-lock #botovbar{cursor:default}
+#botovbar .bp-mark{color:#c4675f;font-size:10px}
+#botovbar .bp-name{letter-spacing:.04em}
+#botovbar .bp-btns{margin-left:auto;display:flex;align-items:center;gap:1px}
+#botovbar .bp-btns i{cursor:pointer;color:#9a8c8b;font-size:12px;font-style:normal;
+          line-height:1;padding:4px 5px;border-radius:5px}
+#botovbar .bp-btns i:hover{color:#c4675f;background:rgba(196,103,95,.14)}
+#botovgrip{position:absolute;left:0;bottom:0;width:17px;height:17px;opacity:0;
+           cursor:nesw-resize;transition:opacity .15s;
+           background:linear-gradient(45deg,#c4675f 45%,transparent 45%)}
+#botov:hover #botovgrip{opacity:.85}
 </style>
 <script>(function(){
-var K='botov_geo_v1',ov=document.getElementById('botov'),bar=document.getElementById('botovbar'),
+var K='botov_geo_v3',B='__ORIGIN__',SNAP=14,
+    ov=document.getElementById('botov'),bar=document.getElementById('botovbar'),
     grip=document.getElementById('botovgrip'),fr=document.getElementById('botovframe'),
-    rst=document.getElementById('botovreset');
-function clamp(g){var W=innerWidth,H=innerHeight;
-  g.w=Math.min(g.w,W);g.h=Math.min(g.h,H);
-  g.l=Math.max(0,Math.min(g.l,W-g.w));g.t=Math.max(0,Math.min(g.t,H-g.h));return g;}
-function apply(g){ov.style.left=g.l+'px';ov.style.top=g.t+'px';
-  ov.style.width=g.w+'px';ov.style.height=g.h+'px';ov.style.right='auto';}
-function geo(){return{l:ov.offsetLeft,t:ov.offsetTop,w:ov.offsetWidth,h:ov.offsetHeight};}
-var B='__ORIGIN__';
-function save(){var g=geo();try{localStorage.setItem(K,JSON.stringify(g));}catch(e){}
-  // Le client du jeu efface son localStorage a chaque lancement : on persiste
-  // aussi cote bot pour que la position/taille survivent.
-  try{fetch(B+'/overlay/geo?l='+Math.round(g.l)+'&t='+Math.round(g.t)
-        +'&w='+Math.round(g.w)+'&h='+Math.round(g.h));}catch(e){}}
-function def(){return clamp({w:320,h:Math.round(innerHeight*0.7),l:innerWidth-320,t:0});}
+    bOp=document.getElementById('botovop'),bLock=document.getElementById('botovlock'),
+    bMin=document.getElementById('botovmin'),bRst=document.getElementById('botovreset');
+// `want` = ce que l'utilisateur a choisi. Jamais modifie par un resize.
+var want={l:0,t:0,w:340,h:400},mini=false,locked=false,op=1,touched=false;
+var OPS=[1,.85,.7,.55];
+function r(n){return Math.round(n);}
+function def(){return{l:innerWidth-352,t:12,w:340,h:r(innerHeight*0.68)};}
+function view(){var W=innerWidth,H=innerHeight,g={};
+  g.w=Math.max(220,Math.min(want.w,W));
+  g.h=Math.max(150,Math.min(want.h,H));
+  g.l=Math.max(0,Math.min(want.l,W-g.w));
+  // Replie, le panneau ne fait que la hauteur de sa barre : le borner sur sa
+  // hauteur depliee l'empecherait d'aller se ranger en bas de l'ecran.
+  g.t=Math.max(0,Math.min(want.t,H-(mini?27:g.h)));return g;}
+function paint(){var g=view();
+  ov.style.left=g.l+'px';ov.style.top=g.t+'px';ov.style.right='auto';
+  ov.style.width=g.w+'px';ov.style.height=mini?'':g.h+'px';
+  ov.style.opacity=op;
+  ov.classList.toggle('bp-mini',mini);ov.classList.toggle('bp-lock',locked);
+  bLock.innerHTML=locked?'&#128274;':'&#128275;';
+  bLock.title=locked?'Déverrouiller la position':'Verrouiller la position';
+  bMin.textContent=mini?'▭':'▬';}
+// Ecrit la geometrie voulue + la resolution ou elle a ete choisie. Appele
+// UNIQUEMENT depuis un geste utilisateur : rien ne peut plus l'ecraser tout seul.
+function store(){touched=true;
+  var s={l:r(want.l),t:r(want.t),w:r(want.w),h:r(want.h),
+         vw:innerWidth,vh:innerHeight,c:mini?1:0,lk:locked?1:0,op:r(op*100)};
+  try{localStorage.setItem(K,JSON.stringify(s));}catch(e){}
+  var q=Object.keys(s).map(function(k){return k+'='+s[k];}).join('&');
+  try{fetch(B+'/overlay/geo?'+q,{mode:'cors',keepalive:true});}catch(e){}}
+// Reprend une geometrie memorisee. Si l'ecran a change de taille, on
+// reproportionne au lieu de plaquer le panneau contre un bord.
+function adopt(g){
+  want={l:+g.l||0,t:+g.t||0,w:+g.w||340,h:+g.h||400};
+  var W=+g.vw||0,H=+g.vh||0;
+  if(W>100&&H>100&&(W!==innerWidth||H!==innerHeight)){
+    want.l=r(want.l*innerWidth/W);want.t=r(want.t*innerHeight/H);
+    want.h=r(want.h*innerHeight/H);}
+  mini=String(g.c)==='1';locked=String(g.lk)==='1';
+  var o=+g.op;op=(o>=30&&o<=100)?o/100:1;
+  paint();}
 function local(){try{var g=JSON.parse(localStorage.getItem(K));if(g&&g.w)return g;}catch(e){}return null;}
-function init(){
-  fetch(B+'/overlay/geo').then(function(r){return r.json();}).then(function(g){
-    apply(clamp(g&&g.w?g:(local()||def())));
-  }).catch(function(){apply(clamp(local()||def()));});}
-function drag(e,mode){e.preventDefault();fr.style.pointerEvents='none';
-  var sx=e.clientX,sy=e.clientY,b=geo();
-  function mv(e){var dx=e.clientX-sx,dy=e.clientY-sy,g;
-    if(mode==='move')g={l:b.l+dx,t:b.t+dy,w:b.w,h:b.h};
-    else g={l:b.l+dx,t:b.t,w:b.w-dx,h:b.h+dy};
-    if(g.w<180){g.w=180;}if(g.h<140){g.h=140;}apply(clamp(g));}
+// Le bot n'ecoute pas forcement encore quand le client charge : on reessaye
+// plutot que de conclure "rien de memorise" (ce qui posait le defaut, puis
+// l'ecrasait dans le fichier).
+function init(tries){
+  fetch(B+'/overlay/geo',{mode:'cors',cache:'no-store'})
+    .then(function(x){return x.json();})
+    .then(function(g){if(touched)return;              // l'utilisateur a deja bouge : il gagne
+      if(g&&g.w){adopt(g);}else{var l=local();if(l)adopt(l);}})
+    .catch(function(){if(touched)return;
+      var l=local();if(l){adopt(l);return;}
+      if(tries>0)setTimeout(function(){init(tries-1);},1500);});}
+function snap(g){var W=innerWidth,H=innerHeight;
+  if(Math.abs(g.l)<SNAP)g.l=0;
+  if(Math.abs(W-(g.l+g.w))<SNAP)g.l=W-g.w;
+  if(Math.abs(g.t)<SNAP)g.t=0;
+  if(Math.abs(H-(g.t+g.h))<SNAP)g.t=H-g.h;
+  return g;}
+function drag(e,mode){
+  if(locked)return;
+  e.preventDefault();fr.style.pointerEvents='none';
+  var sx=e.clientX,sy=e.clientY,b=view();
+  function mv(e){var dx=e.clientX-sx,dy=e.clientY-sy;
+    if(mode==='move')want=snap({l:b.l+dx,t:b.t+dy,w:b.w,h:b.h});
+    else want={l:b.l+dx,t:b.t,w:Math.max(220,b.w-dx),h:Math.max(150,b.h+dy)};
+    paint();}
   function up(){document.removeEventListener('mousemove',mv);
-    document.removeEventListener('mouseup',up);fr.style.pointerEvents='';save();}
+    document.removeEventListener('mouseup',up);fr.style.pointerEvents='';store();}
   document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);}
-bar.addEventListener('mousedown',function(e){if(e.target!==rst)drag(e,'move');});
+bar.addEventListener('mousedown',function(e){
+  if(e.target.tagName!=='I')drag(e,'move');});
 grip.addEventListener('mousedown',function(e){drag(e,'resize');});
-rst.addEventListener('click',function(){try{localStorage.removeItem(K);}catch(e){}apply(def());});
-addEventListener('resize',function(){apply(clamp(geo()));});
-init();
+bMin.addEventListener('click',function(){mini=!mini;paint();store();});
+bLock.addEventListener('click',function(){locked=!locked;paint();store();});
+bOp.addEventListener('click',function(){
+  op=OPS[(OPS.indexOf(op)+1)%OPS.length]||1;paint();store();});
+bRst.addEventListener('click',function(){
+  want=def();mini=false;locked=false;op=1;paint();store();});
+// Alt+B : masquer / remontrer sans rien memoriser (le temps d'un combat serre).
+addEventListener('keydown',function(e){
+  if(e.altKey&&(e.key==='b'||e.key==='B')){
+    ov.style.display=(ov.style.display==='none')?'flex':'none';}});
+// Fenetre redimensionnee : on re-borne l'AFFICHAGE, on ne memorise rien.
+addEventListener('resize',paint);
+want=def();paint();init(8);
 })();</script>
 <script>(function(){
   // Panneau donjon du serveur : il selectionne "Donjon d'Incarnam" par defaut

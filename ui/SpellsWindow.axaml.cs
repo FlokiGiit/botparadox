@@ -7,6 +7,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -14,6 +16,7 @@ using System.Windows.Input;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 
 namespace ui;
@@ -29,19 +32,30 @@ public sealed class Act : ICommand
     public event EventHandler? CanExecuteChanged { add { } remove { } }
 }
 
+// `Dim` : les sorts non appris restent visibles mais en retrait — ils comptent
+// dans la priorite le jour ou le personnage les apprendra.
 public record PickRow(string Rank, string? Name, string Detail, IBrush Colour,
+                      double Dim, Bitmap? Icon,
                       ICommand Up, ICommand Down, ICommand Remove);
-public record AvailRow(string? Name, string Detail, IBrush Colour, ICommand Add);
-public record BuffRow(string? Name, bool On, IBrush Colour, ICommand Toggle);
+public record AvailRow(string? Name, string Detail, IBrush Colour, double Dim,
+                       bool Known, Bitmap? Icon, ICommand Add);
+public record BuffRow(string? Name, bool On, IBrush Colour, double Dim,
+                      Bitmap? Icon, ICommand Toggle);
 
 public partial class SpellsWindow : Window
 {
     const string Root = "http://127.0.0.1:8765/combat";
 
-    static readonly IBrush Normal = new SolidColorBrush(Color.Parse("#e6e8eb"));
-    static readonly IBrush Unlearned = new SolidColorBrush(Color.Parse("#ffb454"));
+    static readonly IBrush Normal = new SolidColorBrush(Color.Parse("#ECE6E5"));
+    static readonly IBrush Unlearned = new SolidColorBrush(Color.Parse("#D9A85C"));
 
     readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(3) };
+
+    // Les icones vivent dans le dossier data du bot. On teste les deux
+    // emplacements possibles : celui du bot lance (installe : botcore\data) puis
+    // celui des sources, pour que la fenetre marche aussi en developpement quand
+    // c'est le bot installe qui tourne.
+    static readonly string[] SpellIconDirs = MainWindow.SpellIconDirs();
 
     // Les curseurs émettent un évènement à chaque cran franchi : on regroupe
     // pour ne pas inonder le bot pendant le glissement.
@@ -62,9 +76,34 @@ public partial class SpellsWindow : Window
     JsonElement _state;
     bool _loaded;
 
+    // Icones de sorts : PNG extraits du grimoire par spell_icons.py. Le cache
+    // evite de relire le disque a chaque repeinture de la liste.
+    readonly Dictionary<int, Bitmap?> _icons = new();
+
+    Bitmap? SpellIcon(int id)
+    {
+        if (_icons.TryGetValue(id, out var cached)) return cached;
+        Bitmap? bmp = null;
+        foreach (var dir in SpellIconDirs)
+        {
+            try
+            {
+                var path = Path.Combine(dir, id + ".png");
+                if (File.Exists(path)) { bmp = new Bitmap(path); break; }
+            }
+            catch { /* icone illisible : la ligne s'affiche sans */ }
+        }
+        _icons[id] = bmp;
+        return bmp;
+    }
+
     public SpellsWindow()
     {
         InitializeComponent();
+
+        // Le filtre ne touche pas au bot : il ne change que l'affichage de la
+        // colonne « disponibles », qui compte plus de 400 lignes sans lui.
+        Search.TextChanged += (_, _) => Paint();
 
         Delay.ValueChanged += (_, _) =>
         {
@@ -130,7 +169,7 @@ public partial class SpellsWindow : Window
         var max = s.GetProperty("max").GetInt32();
         if (max > 0) bits.Add($"{max}/tour");
         if (!s.GetProperty("learned").GetBoolean()) bits.Add("non appris");
-        return string.Join("  ·  ", bits);
+        return string.Join(" · ", bits);
     }
 
     void Paint()
@@ -156,11 +195,14 @@ public partial class SpellsWindow : Window
         {
             if (!by.TryGetValue(id, out var s)) continue;   // sort d'une autre classe
             var sid = id;
+            var known = s.GetProperty("learned").GetBoolean();
             picked.Add(new PickRow(
                 $"{picked.Count + 1}",
                 s.GetProperty("name").GetString(),
                 Detail(s),
-                s.GetProperty("learned").GetBoolean() ? Normal : Unlearned,
+                known ? Normal : Unlearned,
+                known ? 1.0 : 0.6,
+                SpellIcon(sid),
                 new Act(() => Fire($"{Root}/order/{sid}/up")),
                 new Act(() => Fire($"{Root}/order/{sid}/down")),
                 new Act(() => Fire($"{Root}/toggle/{sid}"))));
@@ -174,19 +216,42 @@ public partial class SpellsWindow : Window
         foreach (var id in _state.GetProperty("buffs").EnumerateArray())
             onBuff.Add(id.GetInt32());
 
+        var needle = (Search.Text ?? "").Trim();
+        var confirmed = _state.GetProperty("known").GetBoolean();
+        var learnedOnly = OnlyLearned.IsChecked == true;
+        var total = 0;
+
         foreach (var s in _state.GetProperty("spells").EnumerateArray())
         {
             var sid = s.GetProperty("id").GetInt32();
-            var colour = s.GetProperty("learned").GetBoolean() ? Normal : Unlearned;
+            var name = s.GetProperty("name").GetString();
+            var known = s.GetProperty("learned").GetBoolean();
+            var colour = known ? Normal : Unlearned;
+            var dim = known ? 1.0 : 0.6;
             if (!selected.Contains(sid))
-                avail.Add(new AvailRow(s.GetProperty("name").GetString(), Detail(s),
-                    colour, new Act(() => Fire($"{Root}/toggle/{sid}"))));
-            buffs.Add(new BuffRow(s.GetProperty("name").GetString(), onBuff.Contains(sid),
-                colour, new Act(() => Fire($"{Root}/buff/{sid}"))));
+            {
+                total++;
+                var shown = (!learnedOnly || known)
+                    && (needle.Length == 0 || (name ?? "").Contains(
+                            needle, StringComparison.OrdinalIgnoreCase));
+                if (shown)
+                    avail.Add(new AvailRow(name, Detail(s), colour, dim, known,
+                        SpellIcon(sid), new Act(() => Fire($"{Root}/toggle/{sid}"))));
+            }
+            // Buffs : seuls les sorts appris peuvent etre lances sur soi, en
+            // afficher 400 dont 380 impossibles ne servait a rien. Tant que le
+            // serveur n'a pas confirme la liste, personne n'est « appris » : on
+            // montre tout plutot qu'un panneau vide.
+            if (known || !confirmed)
+                buffs.Add(new BuffRow(name, onBuff.Contains(sid), colour, dim,
+                    SpellIcon(sid), new Act(() => Fire($"{Root}/buff/{sid}"))));
         }
-        Available.ItemsSource = avail;
+        // Les sorts appris d'abord : c'est ce qu'on cherche 9 fois sur 10.
+        Available.ItemsSource = avail.OrderByDescending(r => r.Known).ToList();
         Buffs.ItemsSource = buffs;
-        EmptyAvail.IsVisible = avail.Count == 0 && picked.Count == 0;
+        AvailCount.Text = avail.Count == total
+            ? $"{total}" : $"{avail.Count} / {total}";
+        EmptyAvail.IsVisible = total == 0 && picked.Count == 0;
 
         Move.IsChecked = _state.GetProperty("move").GetBoolean();
         _shownDelay = Math.Round(_state.GetProperty("delay").GetDouble() * 100);
@@ -206,4 +271,6 @@ public partial class SpellsWindow : Window
     }
 
     async void OnClear(object? sender, RoutedEventArgs e) => await Send($"{Root}/clear");
+
+    void OnFilter(object? sender, RoutedEventArgs e) => Paint();
 }

@@ -39,6 +39,16 @@ RARE_IDS = {
     "925392": "Rune d'amelioration temporelle liee",
     "101377": "Modularite", "101378": "Modularite intemporelle",
     "101379": "Modularite frigost",
+    # Box / essences (drops donjon & loot rare)
+    "102110": "Box d'essences",
+    "102100": "Essence elementaire",
+    "102101": "Essence de Vitalite",
+    "102102": "Essence d'Initiative",
+    "102103": "Essence de PA",
+    "102104": "Essence de PM",
+    "102105": "Essence de PO",
+    "102106": "Essence de Prospection",
+    "102107": "Essence de Sagesse",
 }
 
 
@@ -48,7 +58,15 @@ def json_or(d):
 
 def _rare_category(model, entry):
     """Categorie d'un objet rare, ou None si banal."""
-    if str(model) in RARE_IDS:
+    mid = str(model)
+    name = ((entry or {}).get("name") or "").lower()
+    if mid == "102110" or "box d'essence" in name:
+        return "box"
+    if mid in RARE_IDS and RARE_IDS[mid].lower().startswith("essence"):
+        return "essence"
+    if name.startswith("essence ") or name.startswith("essence d"):
+        return "essence"
+    if mid in RARE_IDS:
         return "energie"
     t = (entry or {}).get("type", "")
     if t in ("Dofus", "Fragment de Dofus"):
@@ -94,9 +112,16 @@ def _load_overlay_geo():
 
 
 def _save_overlay_geo(geo):
+    """Ecriture atomique : le client peut demander deux sauvegardes coup sur
+    coup (fin de glisser + repli), et un fichier tronque relancerait l'overlay
+    sur sa position par defaut. Le dossier est cree si besoin (une install
+    fraiche n'a pas encore de data/)."""
     try:
-        with open(_GEO_FILE, "w", encoding="utf-8") as f:
+        os.makedirs(os.path.dirname(_GEO_FILE), exist_ok=True)
+        tmp = _GEO_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(geo, f)
+        os.replace(tmp, _GEO_FILE)
     except OSError:
         pass
 
@@ -248,11 +273,17 @@ def build_fuse(stats, template_id):
 
 
 def _headers(ctype, length):
-    """En-tetes HTTP communs a toutes les reponses du tableau de bord."""
+    """En-tetes HTTP communs a toutes les reponses du tableau de bord.
+
+    CORS ouvert : le script d'overlay vit dans la page du jeu (origine
+    distincte) et doit pouvoir sauver la geometrie via /overlay/geo.
+    """
     return ("HTTP/1.1 200 OK\r\n"
             f"Content-Type: {ctype}\r\n"
             f"Content-Length: {length}\r\n"
             "Cache-Control: no-store\r\n"
+            "Access-Control-Allow-Origin: *\r\n"
+            "Access-Control-Allow-Methods: GET, OPTIONS\r\n"
             "Connection: close\r\n\r\n").encode()
 
 
@@ -327,10 +358,6 @@ class Stats:
         self.bag = {}             # modele -> quantite en sac (hors equipe)
         self.bag_uids = {}        # modele -> {uid: quantite} (pour crafter)
         self.equipped = {}        # modele -> quantite equipee
-        # Banque : capturee a l'ouverture (ELO/ECK5) et MEMORISEE sur disque,
-        # car le serveur ne l'envoie qu'a l'ouverture. On la garde donc entre
-        # les sessions : ouvrir la banque une fois suffit, meme apres restart.
-        self.bank = self._load_bank()
         self.level_start = None   # niveau au debut de la session
         self.session_levels = 0   # niveaux gagnes cette session
         self.xp_floor = None      # plancher du niveau courant, pour detecter un up
@@ -430,11 +457,9 @@ class Stats:
         # L'equipe ne compte que pour les Bouclier et Familier : un tel item
         # deja porte est acquis. Les Dofus equipes (dans le Dofus) restent
         # exclus, car utilises.
-        def bank_of(tid):
-            return self.bank.get(str(tid), 0)
 
         def have(tid):
-            h = self.bag.get(str(tid), 0) + bank_of(tid)
+            h = self.bag.get(str(tid), 0)
             if b.type.get(tid) in ("Bouclier", "Familier"):
                 h += self.equipped.get(str(tid), 0)
             return h
@@ -458,28 +483,11 @@ class Stats:
                 "gfx": icon(node["id"]),
                 "need": node["need"],
                 "have": have(node["id"]),
-                "bank": bank_of(node["id"]),   # dont X en banque (indicateur)
                 "depth": node["depth"],
                 "craftable": node["craftable"],
                 "canfuse": can_fuse(node["id"]),
             })
         return {"targets": targets, "tree": tree}
-
-    def _load_bank(self):
-        try:
-            with open(_data("bank.json"), encoding="utf-8") as f:
-                return json.load(f)
-        except (OSError, ValueError):
-            return {}
-
-    def set_bank(self, bank):
-        """Mémorise la banque capturée et la persiste (elle survit au restart)."""
-        self.bank = bank
-        try:
-            with open(_data("bank.json"), "w", encoding="utf-8") as f:
-                json.dump(bank, f)
-        except OSError:
-            pass
 
     def observe_xp(self, total):
         """Accumule le gain d'XP. Le premier total sert de reference sans
@@ -773,92 +781,113 @@ PAGE = """<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Bot Paradox</title><style>
 *{box-sizing:border-box}
-body{margin:0;font:14px/1.5 system-ui,sans-serif;background:#14161a;color:#e6e8eb;padding:24px}
-h1{font-size:16px;font-weight:600;margin:0 0 20px;color:#9aa4b2;letter-spacing:.08em;text-transform:uppercase}
+body{margin:0;font:14px/1.5 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;background:#0e0b0c;color:#ece6e5;padding:24px;
+background-image:radial-gradient(ellipse at 90% 0%,rgba(90,42,38,.45),transparent 50%),
+linear-gradient(160deg,#0e0b0c,#141010 50%,#1b1213)}
+h1{font-size:21px;font-weight:700;margin:0 0 18px;color:#c4675f;letter-spacing:.01em}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px}
-.card{background:#1c1f26;border:1px solid #262a33;border-radius:10px;padding:16px}
-.k{font-size:11px;color:#7d8797;text-transform:uppercase;letter-spacing:.06em}
+.card{background:#171213;border:1px solid #2a2022;border-radius:12px;padding:16px}
+.k{font-size:11px;color:#9a8c8b;text-transform:uppercase;letter-spacing:.06em}
 .v{font-size:28px;font-weight:600;margin-top:6px;font-variant-numeric:tabular-nums}
-.sub{font-size:12px;color:#7d8797;margin-top:2px}
-.bar{height:6px;background:#262a33;border-radius:3px;overflow:hidden;margin-top:10px}
-.bar i{display:block;height:100%;background:#4a9eff}
+.sub{font-size:12px;color:#9a8c8b;margin-top:2px}
+.bar{height:6px;background:#2a2022;border-radius:3px;overflow:hidden;margin-top:10px}
+.bar i{display:block;height:100%;background:#c4675f}
 .cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media(max-width:720px){.cols{grid-template-columns:1fr}}
 table{width:100%;border-collapse:collapse}
-th{text-align:left;font-size:11px;color:#7d8797;text-transform:uppercase;padding:6px 8px;font-weight:500}
-td{padding:6px 8px;border-top:1px solid #262a33;font-variant-numeric:tabular-nums}
+th{text-align:left;font-size:11px;color:#9a8c8b;text-transform:uppercase;padding:6px 8px;font-weight:500}
+td{padding:6px 8px;border-top:1px solid #2a2022;font-variant-numeric:tabular-nums}
 .ev{max-height:340px;overflow-y:auto}
-.ev div{padding:5px 8px;border-top:1px solid #262a33;display:flex;gap:10px}
-.ts{color:#5f6875;font-size:12px;min-width:62px}
+.ev div{padding:5px 8px;border-top:1px solid #2a2022;display:flex;gap:10px}
+.ts{color:#6b5f5f;font-size:12px;min-width:62px}
 .tabs{display:flex;gap:8px;margin-bottom:16px}
-.tabs button{background:#1c1f26;color:#7d8797;border:1px solid #262a33;border-radius:8px;padding:8px 18px;font:inherit;cursor:pointer}
-.tabs button.on{background:#4a9eff;color:#0d1117;border-color:#4a9eff;font-weight:600}
+.tabs button{background:#1f1819;color:#9a8c8b;border:1px solid #2a2022;border-radius:8px;padding:8px 18px;font:inherit;cursor:pointer}
+.tabs button.on{background:#c4675f;color:#150f0f;border-color:#c4675f;font-weight:600}
 .it{display:flex;align-items:center;gap:8px}
 .it img{width:26px;height:26px;object-fit:contain;flex:none}
 .ei{width:18px;height:18px;object-fit:contain;flex:none;margin-right:-4px}
 .ev div{align-items:center}
-.harvest{color:#7dd3a0}.fight{color:#ffb454}.drop{color:#4a9eff;font-weight:600}.levelup{color:#c084fc;font-weight:600}.xp{color:#7dd3a0;font-weight:600}.kamas{color:#ffd166;font-weight:600}
-.off{color:#e05561}
-.sp{display:flex;align-items:center;gap:8px;padding:6px 8px;border-top:1px solid #262a33}
+.harvest{color:#86b48f}.fight{color:#d9a85c}.drop{color:#7fa6c9;font-weight:600}.levelup{color:#c9a0e8;font-weight:600}.xp{color:#86b48f;font-weight:600}.kamas{color:#d9a85c;font-weight:600}
+.off{color:#e8574f}
+.sp{display:flex;align-items:center;gap:8px;padding:6px 8px;border-top:1px solid #2a2022}
 .sp:first-child{border-top:0}
 .sp .nm{flex:1;font-weight:500}
-.sp .tag{font-size:10px;color:#7d8797;border:1px solid #262a33;border-radius:4px;padding:1px 5px}
-.sp .tag.z{color:#ffb454;border-color:#4a3a22}
-.sp button{background:#262a33;color:#9aa4b2;border:0;border-radius:5px;width:24px;height:22px;cursor:pointer;font:inherit;line-height:1}
-.sp button:hover{background:#4a9eff;color:#0d1117}
-.sp .rank{color:#4a9eff;font-weight:700;min-width:16px;font-variant-numeric:tabular-nums}
+.si{width:24px;height:24px;flex:none;border-radius:5px;background:#0e0b0c;
+    border:1px solid #2a2022;object-fit:contain}
+.sp .tag{font-size:10px;color:#9a8c8b;border:1px solid #2a2022;border-radius:4px;padding:1px 5px}
+.sp .tag.z{color:#d9a85c;border-color:#3a2a26}
+.sp button{background:#2a2022;color:#c9b3b1;border:0;border-radius:5px;width:24px;height:22px;cursor:pointer;font:inherit;line-height:1}
+.sp button:hover{background:#c4675f;color:#150f0f}
+.sp .rank{color:#c4675f;font-weight:700;min-width:16px;font-variant-numeric:tabular-nums}
 .sp.na{opacity:.45}
-.box{background:#14161a;border:1px solid #262a33;border-radius:8px;max-height:260px;overflow-y:auto}
+.box{background:#0e0b0c;border:1px solid #2a2022;border-radius:8px;max-height:260px;overflow-y:auto}
 .opt{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;font-size:13px}
 .opt label{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
-.opt select,.opt input[type=number]{background:#14161a;color:#e6e8eb;border:1px solid #262a33;border-radius:6px;padding:4px 6px;font:inherit}
-.hint{font-size:12px;color:#5f6875;padding:10px 8px}
+.opt select,.opt input[type=number]{background:#0e0b0c;color:#ece6e5;border:1px solid #2a2022;border-radius:6px;padding:4px 6px;font:inherit}
+.hint{font-size:12px;color:#6b5f5f;padding:10px 8px}
+.asg{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}
+.asc{display:flex;flex-direction:column;gap:7px}
+.ash{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+     color:#8e4640;display:flex;align-items:baseline;gap:8px}
+.ash em{font-style:normal;font-size:10px;color:#6b5f5f;letter-spacing:0;
+        text-transform:none;margin-left:2px}
+.ash em::before{content:"· "}
+.asc label{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px}
+.asc input{width:15px;height:15px;accent-color:#c4675f;flex:none}
+.asc label.lk{opacity:.4;cursor:not-allowed}
 </style></head><body>
 <h1>Bot Paradox <span id="live" class="off">— hors ligne</span>
   <a href="/assist" target="_blank" style="float:right;font-size:12px;
-     text-transform:none;letter-spacing:0;color:#3fb950;text-decoration:none;
-     border:1px solid #2ea043;border-radius:8px;padding:6px 12px">Assistant de combat ↗</a>
+     text-transform:none;letter-spacing:0;color:#86b48f;text-decoration:none;
+     border:1px solid #3d5f45;border-radius:8px;padding:6px 12px;font-family:system-ui">Assistant de combat ↗</a>
 </h1>
 <div class="tabs">
   <button id="tObserve" onclick="setMode('off')">Observer</button>
-  <button id="tHarvest" onclick="setMode('harvest')">Harvest</button>
   <button id="tFarm" onclick="setMode('farm')">Farming</button>
   <button id="tKrala" onclick="setMode('kralamoure')" title="Combat scripté du Kralamoure Géant (placement fixe)">Kralamoure</button>
 </div>
-<label style="display:inline-flex;align-items:center;gap:8px;margin:0 0 12px;
-              cursor:pointer;font-size:13px;color:#e6e8eb">
-  <input type="checkbox" id="soulCap" onchange="toggleSoul()" style="width:16px;height:16px">
-  <span>Capture d'âmes <span class="sub">(413, boss, début de tour)</span></span>
-</label>
-<label style="display:inline-flex;align-items:center;gap:8px;margin:0 0 12px 16px;
-              cursor:pointer;font-size:13px;color:#e6e8eb">
-  <input type="checkbox" id="prepMaitrise" onchange="togglePrep('maitrise')" style="width:16px;height:16px">
-  <span>Maîtrise de l'Arc <span class="sub">(180, tour 1)</span></span>
-</label>
-<label style="display:inline-flex;align-items:center;gap:8px;margin:0 0 12px 16px;
-              cursor:pointer;font-size:13px;color:#e6e8eb">
-  <input type="checkbox" id="prepTir" onchange="togglePrep('tir')" style="width:16px;height:16px">
-  <span>Tir Puissant <span class="sub">(166, tour 1)</span></span>
-</label>
-<label style="display:inline-flex;align-items:center;gap:8px;margin:0 0 12px 16px;
-              cursor:pointer;font-size:13px;color:#e6e8eb">
-  <input type="checkbox" id="prepCoffre" onchange="togglePrep('coffre')" style="width:16px;height:16px">
-  <span>Coffre animé <span class="sub">(6019, tour 1)</span></span>
-</label>
-<label style="display:inline-flex;align-items:center;gap:8px;margin:0 0 12px 16px;
-              cursor:pointer;font-size:13px;color:#e6e8eb">
-  <input type="checkbox" id="scriptKorriandre" onchange="toggleScript('korriandre')" style="width:16px;height:16px">
-  <span>Script Korriandre <span class="sub">(glyphes — farming)</span></span>
-</label>
+<!-- Assistance : regroupee par ce qu'elle fait, et non melangee au choix du
+     mode. Prep et Capture agissent dans TOUS les modes ; les scripts n'ont de
+     sens que quand le bot joue, donc verrouilles en Observer. -->
+<div class="card" style="margin-bottom:12px">
+  <div class="k" style="margin-bottom:14px">Assistance de combat
+    <span class="sub" id="asMode" style="text-transform:none;letter-spacing:0;
+          margin-left:8px"></span></div>
+  <div class="asg">
+    <div class="asc">
+      <div class="ash">Prep tour 1 <em>Observer + Farming</em></div>
+      <label><input type="checkbox" id="prepMaitrise" onchange="togglePrep('maitrise')">
+        <span>Maîtrise de l'Arc <span class="sub">180</span></span></label>
+      <label><input type="checkbox" id="prepTir" onchange="togglePrep('tir')">
+        <span>Tir Puissant <span class="sub">166</span></span></label>
+      <label><input type="checkbox" id="prepCoffre" onchange="togglePrep('coffre')">
+        <span>Coffre animé <span class="sub">6019</span></span></label>
+    </div>
+    <div class="asc">
+      <div class="ash">Boss <em>Observer + Farming</em></div>
+      <label><input type="checkbox" id="soulCap" onchange="toggleSoul()">
+        <span>Capture d'âmes <span class="sub">413, début de tour</span></span></label>
+    </div>
+    <div class="asc" id="ascScripts">
+      <div class="ash">Scripts <em>bot aux commandes</em></div>
+      <label id="labKorri"><input type="checkbox" id="scriptKorriandre"
+             onchange="toggleScript('korriandre')">
+        <span>Script Korriandre <span class="sub">glyphes GDZ</span></span></label>
+      <div class="sub" id="korriHint" style="display:none">🔒 sans effet en
+        Observer : le bot ne se déplace pas.</div>
+    </div>
+  </div>
+</div>
 <div class="grid">
   <div class="card farmOnly"><div class="k">Monstres tués</div><div class="v" id="kills">0</div><div class="sub" id="killsRate"></div></div>
   <div class="card farmOnly"><div class="k">XP gagnée</div><div class="v" id="xpg">0</div><div class="sub" id="xpgRate"></div></div>
-  <div class="card"><div class="k">Kamas gagnés</div><div class="v" id="kam">0</div><div class="sub" id="kamRate"></div></div>
-  <div class="card harvestOnly"><div class="k">Fauchages</div><div class="v" id="h">0</div><div class="sub" id="hr"></div></div>
+  <div class="card"><div class="k">Kamas inventaire</div><div class="v" id="kinv" style="color:#d9a85c">0</div></div>
+  <div class="card"><div class="k">Kamas session</div><div class="v" id="kam">0</div><div class="sub" id="kamRate"></div></div>
   <div class="card"><div class="k">Combats</div><div class="v" id="f">0</div><div class="sub" id="fw"></div></div>
   <div class="card"><div class="k">Pods</div><div class="v" id="p">0</div><div class="bar"><i id="pb" style="width:0"></i></div></div>
   <div class="card"><div class="k">Session</div><div class="v" id="u">0:00</div><div class="sub" id="map"></div></div>
   <div class="card"><div class="k">Niveau</div><div class="v" id="lvl">—</div>
+    <div class="sub" id="lvlGain"></div>
     <div class="bar"><i id="xb" style="width:0"></i></div><div class="sub" id="xt"></div></div>
 </div>
 <div class="card farmOnly" id="combatCard" style="margin-bottom:12px">
@@ -886,13 +915,11 @@ td{padding:6px 8px;border-top:1px solid #262a33;font-variant-numeric:tabular-num
     <label>Trajet max pour agresser
       <input type="number" id="cSteps" min="1" max="60" onchange="setSteps()"
              style="width:64px"> pas</label>
-    <button onclick="clearSpells()" style="background:#262a33;color:#9aa4b2;
+    <button onclick="clearSpells()" style="background:#271f20;color:#9a8c8b;
       border:0;border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit">
       Tout réinitialiser</button>
   </div>
 </div>
-<div class="card" id="jobsCard" style="margin-bottom:12px;display:none">
-  <div class="k" style="margin-bottom:8px">Métiers</div><div id="jobs"></div></div>
 <div class="cols">
   <div class="card"><div class="k" style="margin-bottom:8px">Objets ramassés</div>
     <table><thead><tr><th>Objet</th><th>Gagné</th><th>Total</th></tr></thead><tbody id="items"></tbody></table></div>
@@ -907,8 +934,6 @@ async function tick(){
   try{ d=await (await fetch('/stats')).json(); }
   catch(e){ document.getElementById('live').textContent='— hors ligne'; return; }
   document.getElementById('live').textContent='';
-  document.getElementById('h').textContent=d.harvests;
-  document.getElementById('hr').textContent=d.harvests_per_hour.toFixed(0)+' / heure';
   document.getElementById('f').textContent=d.fights;
   document.getElementById('fw').textContent=d.fights_won+' terminés';
   document.getElementById('p').textContent=d.pods.toLocaleString('fr');
@@ -918,37 +943,38 @@ async function tick(){
   document.getElementById('items').innerHTML=d.items.map(i=>
     `<tr><td class="it">${i.gfx?`<img src="/icon/${i.gfx}" alt="" loading="lazy">`:''}<span>${i.name}</span></td>`
     +`<td>+${i.gained.toLocaleString('fr')}</td><td>${i.qty.toLocaleString('fr')}</td></tr>`).join('')
-    ||'<tr><td colspan="3" style="color:#5f6875">rien encore</td></tr>';
+    ||'<tr><td colspan="3" style="color:#6b5f5f">rien encore</td></tr>';
   const fmt=n=>n.toLocaleString('fr');
   document.getElementById('tObserve').className=d.mode==='off'?'on':'';
-  document.getElementById('tHarvest').className=d.mode==='harvest'?'on':'';
-  document.getElementById('tFarm').className=d.mode==='farm'?'on':'';
+  document.getElementById('tFarm').className=(d.mode==='farm'||d.mode==='harvest')?'on':'';
   document.getElementById('tKrala').className=d.mode==='kralamoure'?'on':'';
   document.getElementById('soulCap').checked=!!d.capture_souls;
   document.getElementById('prepMaitrise').checked=!!d.auto_maitrise;
   document.getElementById('prepTir').checked=!!d.auto_tir;
   document.getElementById('prepCoffre').checked=!!d.auto_coffre;
   document.getElementById('scriptKorriandre').checked=!!d.script_korriandre;
+  // Verrou honnete : seuls les scripts dependent du bot aux commandes.
+  const obs=d.mode==='off';
+  document.getElementById('asMode').textContent='mode : '+(
+    obs?'Observer':d.mode==='kralamoure'?'Kralamoure':d.mode==='harvest'?'Récolte':'Farming');
+  document.getElementById('scriptKorriandre').disabled=obs;
+  document.getElementById('labKorri').className=obs?'lk':'';
+  document.getElementById('korriHint').style.display=obs?'block':'none';
   document.querySelectorAll('.farmOnly').forEach(e=>e.style.display=(d.mode==='farm'||d.mode==='kralamoure')?'':'none');
-  document.querySelectorAll('.harvestOnly').forEach(e=>e.style.display=d.mode==='harvest'?'':'none');
   document.getElementById('kills').textContent=fmt(d.kills);
   document.getElementById('killsRate').textContent=d.kills_per_hour.toFixed(0)+' / heure';
   document.getElementById('xpg').textContent=fmt(d.xp_gained);
   document.getElementById('xpgRate').textContent=fmt(Math.round(d.xp_per_hour))+' / heure';
+  document.getElementById('kinv').textContent=fmt(d.kamas||0);
   document.getElementById('kam').textContent=fmt(d.kamas_gained);
   document.getElementById('kamRate').textContent=fmt(Math.round(d.kamas_per_hour))+' / heure';
   document.getElementById('lvl').textContent=d.level??'—';
+  document.getElementById('lvlGain').textContent=(d.session_levels>0)?('session +'+d.session_levels):'';
   if(d.xp){
     document.getElementById('xb').style.width=Math.min(100,d.xp.pct)+'%';
     document.getElementById('xt').textContent=
       d.xp.pct.toFixed(1)+'% — reste '+d.xp.remaining.toLocaleString('fr')+' xp';
   }
-  const jc=document.getElementById('jobsCard');
-  jc.style.display=d.jobs.length?'block':'none';
-  document.getElementById('jobs').innerHTML=d.jobs.map(j=>
-    `<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between">
-     <span>${j.name}</span><span class="sub">niv. ${j.level} — ${j.pct.toFixed(0)}%</span></div>
-     <div class="bar"><i style="width:${Math.min(100,j.pct)}%"></i></div></div>`).join('');
   document.getElementById('ev').innerHTML=d.events.map(e=>
     `<div><span class="ts">${hhmm(e.t)}</span>`
     +(e.gfx?`<img class="ei" src="/icon/${e.gfx}" alt="">`:'')
@@ -968,6 +994,9 @@ const tags=s=>`<span class="tag">${s.pa} PA</span>`
   +`<span class="tag">${s.rmin}-${s.rmax}</span>`
   +(s.zone?`<span class="tag z">zone ${s.zone}</span>`:'')
   +(s.max?`<span class="tag">${s.max}/tour</span>`:'');
+// Icone du sort telle qu'elle apparait dans le jeu (servie par /spellicon).
+const sico=s=>`<img class="si" src="/spellicon/${s.id}" alt="" loading="lazy"`
+  +` onerror="this.style.visibility='hidden'">`;
 async function combatFetch(url){
   try{ combat=await (await fetch(url)).json(); paintCombat(); }catch(e){}
 }
@@ -976,7 +1005,7 @@ function paintCombat(){
   // Hors connexion la liste vient du cache disque : elle peut appartenir à une
   // autre classe que celle du personnage qui va jouer.
   document.getElementById('spWarn').innerHTML = combat.known ? ''
-    : '<div class="hint" style="color:#ffb454">Sorts non confirmés par le '
+    : '<div class="hint" style="color:#d9a85c">Sorts non confirmés par le '
       +'serveur : connecte-toi pour que la liste corresponde à la classe du '
       +'personnage. En attendant, le bot n\\'utilisera que les sorts qu\\'il '
       +'possède réellement.</div>';
@@ -984,7 +1013,7 @@ function paintCombat(){
   const sel=combat.selected.map(id=>by[id]).filter(Boolean);
   document.getElementById('spSel').innerHTML = sel.length
     ? sel.map((s,i)=>`<div class="sp ${s.learned?'':'na'}">`
-        +`<span class="rank">${i+1}</span><span class="nm">${s.name}`
+        +`<span class="rank">${i+1}</span>${sico(s)}<span class="nm">${s.name}`
         +(s.learned?'':' <span class="sub">non appris</span>')+`</span>${tags(s)}`
         +`<button onclick="order(${s.id},'up')" title="monter">&#9650;</button>`
         +`<button onclick="order(${s.id},'down')" title="descendre">&#9660;</button>`
@@ -995,7 +1024,7 @@ function paintCombat(){
   const rest=combat.spells.filter(s=>!combat.selected.includes(s.id));
   document.getElementById('spAll').innerHTML = rest.length
     ? rest.map(s=>`<div class="sp ${s.learned?'':'na'}">`
-        +`<span class="nm">${s.name}`
+        +`${sico(s)}<span class="nm">${s.name}`
         +(s.learned?'':' <span class="sub">non appris</span>')+`</span>${tags(s)}`
         +`<button onclick="toggleSpell(${s.id})" title="ajouter">+</button>`
         +`</div>`).join('')
@@ -1005,9 +1034,11 @@ function paintCombat(){
     ? combat.spells.map(s=>{
         const on=combat.buffs.includes(s.id);
         return `<div class="sp ${s.learned?'':'na'}">`
-          +`<label class="nm" style="cursor:pointer;font-weight:500">`
+          +`<label class="nm" style="cursor:pointer;font-weight:500;display:flex;`
+          +`align-items:center;gap:8px">`
           +`<input type="checkbox" ${on?'checked':''} `
-          +`onchange="toggleBuff(${s.id})"> ${s.name}</label>${tags(s)}</div>`;
+          +`onchange="toggleBuff(${s.id})">${sico(s)}<span>${s.name}</span>`
+          +`</label>${tags(s)}</div>`;
       }).join('')
     : '<div class="hint">aucun sort connu</div>';
   document.getElementById('cMove').checked=!!combat.move;
@@ -1213,8 +1244,12 @@ async def _handle(reader, writer):
             try:
                 q = up.parse_qs(path.split("?", 1)[1]) if "?" in path else {}
                 if q:
+                    # l/t/w/h : geometrie voulue. vw/vh : resolution ou elle a
+                    # ete choisie (l'overlay reproportionne si l'ecran change).
+                    # c : replie. lk : verrouille. op : opacite en %.
                     geo = {k: float(v[0]) for k, v in q.items()
-                           if k in ("l", "t", "w", "h")}
+                           if k in ("l", "t", "w", "h", "vw", "vh",
+                                    "c", "lk", "op")}
                     _save_overlay_geo(geo)
                     body = b'{"ok":true}'
                 else:
@@ -1269,6 +1304,30 @@ async def _handle(reader, writer):
             with open(file, "rb") as f:
                 body = f.read()
             ctype = "image/png"
+        elif path.startswith("/spellicon/"):
+            # Icônes de sorts extraites du grimoire par spell_icons.py. Le SVG
+            # est préféré quand il est là (net à toute taille) ; le PNG sert de
+            # repli, et c'est lui que lit la fenêtre Sorts.
+            sid = path[len("/spellicon/"):].split("?")[0].strip("/")
+            if not sid.isdigit():
+                writer.write(b"HTTP/1.1 404 Not Found\r\n"
+                             b"Content-Length: 0\r\nConnection: close\r\n\r\n")
+                await writer.drain()
+                return
+            body, ctype = b"", "image/png"
+            for name, kind in ((_data("spell_svg", sid + ".svg"), "image/svg+xml"),
+                               (_data("spell_icons", sid + ".png"), "image/png")):
+                try:
+                    with open(name, "rb") as f:
+                        body, ctype = f.read(), kind
+                    break
+                except OSError:
+                    continue
+            if not body:
+                writer.write(b"HTTP/1.1 404 Not Found\r\n"
+                             b"Content-Length: 0\r\nConnection: close\r\n\r\n")
+                await writer.drain()
+                return
         else:
             body = PAGE.encode("utf-8")
             ctype = "text/html; charset=utf-8"
