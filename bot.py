@@ -24,7 +24,7 @@ import dashboard
 import gamedata
 import proxy
 from combat import CombatAI, KRALAMOURE_SCRIPT, KRALAMOURE_BOSS_CELL
-from gamemap import GameMap, compress_path
+from gamemap import compress_path
 
 # Mettre à False pour observer les combats sans que le bot y touche.
 AUTO_COMBAT = True
@@ -217,6 +217,8 @@ class Brain:
         # que sur réception d'un paquet, or si rien ne bouge sur la carte, rien
         # n'arrive et rien ne le réveille.
         self.ticker = asyncio.create_task(self._tick())
+        self._map_task = None
+        self._map_loading = None   # (map_id, date, key) en cours de chargement
 
     async def _tick(self):
         while not self.s.server_writer.is_closing():
@@ -421,7 +423,7 @@ class Brain:
             # Filet de sécurité : recevoir une carte veut dire qu'on est bien
             # hors combat. Sans ça, un GE manqué figerait le bot définitivement.
             self.in_fight = False
-            asyncio.create_task(self._load_map(int(map_id), date, key))
+            self._request_map(int(map_id), date, key)
 
         elif msg.startswith("GDF|"):
             self.map_ready = True
@@ -546,6 +548,9 @@ class Brain:
                     self.stats.bag_uids.get(model, {}).pop(uid, None)
                     self.stats.bag[model] = sum(
                         self.stats.bag_uids.get(model, {}).values())
+                # Libère les caches UID (sinon ils grossissent toute la session).
+                self.stats.item_remove(uid)
+                gd.forget_uid(uid)
 
         elif msg.startswith("ECK"):
             # Ouverture d'un échange. Type 5 = banque (coffre) : les paquets ELO
@@ -614,6 +619,15 @@ class Brain:
         """Appelé par le proxy quand la session de jeu se termine."""
         self.stats.client_connected = False
         self.stats.event("info", "jeu déconnecté")
+        if self.ticker is not None and not self.ticker.done():
+            self.ticker.cancel()
+        if self._map_task is not None and not self._map_task.done():
+            self._map_task.cancel()
+        self._map_task = None
+        self._map_loading = None
+        self.gmap = None
+        if self.combat is not None:
+            self.combat.gmap = None
         dashboard.set_brain(None)
 
     async def _announce_ready(self):
@@ -625,22 +639,45 @@ class Brain:
             self.say("placement accepté -> prêt")
             self.s.to_server("GR1")
 
+    def _request_map(self, map_id, date, key):
+        """Charge la carte une seule fois : ignore les GDM identiques répétés
+        et n'empile jamais plusieurs parses concurrentes (fuite RAM majeure)."""
+        sig = (map_id, str(date), str(key or ""))
+        if (self.gmap is not None
+                and getattr(self.gmap, "map_id", None) == map_id
+                and getattr(self.gmap, "date", None) == str(date)):
+            self.combat.gmap = self.gmap
+            self._maybe_act()
+            return
+        if self._map_loading == sig:
+            return
+        if self._map_task is not None and not self._map_task.done():
+            self._map_task.cancel()
+        self._map_loading = sig
+        self._map_task = asyncio.create_task(self._load_map(map_id, date, key))
+
     async def _load_map(self, map_id, date, key):
+        from gamemap import load_map
         loop = asyncio.get_running_loop()
         try:
             # Téléchargement + déchiffrement : hors boucle d'événements pour
-            # ne pas retarder le relais.
+            # ne pas retarder le relais. Cache mémoire : même carte = 0 parse.
             self.gmap = await loop.run_in_executor(
-                None, GameMap, map_id, date, key)
+                None, load_map, map_id, date, key)
             # L'IA en a besoin pour calculer les zones d'effet.
             self.combat.gmap = self.gmap
             self.say(f"carte {map_id} chargée "
                      f"({sum(1 for i in range(len(self.gmap)) if self.gmap.walkable(i))} "
                      f"cellules praticables)")
             self._maybe_act()
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             self.gmap = None
             self.say(f"carte {map_id} illisible : {e!r}")
+        finally:
+            if self._map_loading and self._map_loading[0] == map_id:
+                self._map_loading = None
 
     async def _finish_harvest(self, seconds):
         await asyncio.sleep(seconds + 0.3)

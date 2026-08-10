@@ -606,6 +606,13 @@ class Stats:
             if delta <= 5:
                 # Petit gain isolé : plus probablement un butin qu'une récolte.
                 self.event("drop", "", item=item_id, delta=delta)
+        elif qty <= 0:
+            # Lot vide : plus besoin de retenir l'entrée.
+            self.items.pop(item_id, None)
+
+    def item_remove(self, item_id):
+        """OR : objet retiré — on oublie l'UID pour ne pas faire grossir items."""
+        self.items.pop(str(item_id), None)
 
     # ── restitution ──────────────────────────────────────────────────────────
 

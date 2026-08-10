@@ -99,6 +99,27 @@ def compress_path(cells):
 # retentait le telechargement 23 fois par session.
 _MISSING = set()
 
+# Cache des cartes déjà parsées : un même GDM (même map+date) était
+# rechargé des centaines de fois / session (thread pool + gros SWF en RAM).
+_MAP_CACHE = {}
+_MAP_CACHE_MAX = 12
+
+
+def load_map(map_id, date, key_hex=""):
+    """GameMap depuis le cache mémoire, sinon parse + mémorise (LRU simple)."""
+    key = (int(map_id), str(date), str(key_hex or ""))
+    hit = _MAP_CACHE.get(key)
+    if hit is not None:
+        # LRU : remonter en fin.
+        _MAP_CACHE.pop(key, None)
+        _MAP_CACHE[key] = hit
+        return hit
+    gmap = GameMap(map_id, date, key_hex)
+    _MAP_CACHE[key] = gmap
+    while len(_MAP_CACHE) > _MAP_CACHE_MAX:
+        _MAP_CACHE.pop(next(iter(_MAP_CACHE)))
+    return gmap
+
 
 def _fetch(map_id, date, suffix=""):
     """Télécharge le SWF de carte, avec cache disque (les cartes sont figées).
@@ -167,8 +188,8 @@ class GameMap:
     """Une carte : praticabilité des cellules et voisinage."""
 
     def __init__(self, map_id, date, key_hex=""):
-        self.map_id = map_id
-        self.date = date
+        self.map_id = int(map_id)
+        self.date = str(date)
         # Deux formats coexistent, distingués par la présence d'une clé dans le
         # GDM : clé => carte classique (URL avec X, hex chiffré) ; pas de clé =>
         # nouveau format (URL sans X, cellules en clair).

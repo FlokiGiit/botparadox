@@ -36,6 +36,13 @@ DELIM = b"\x00"
 
 # Opcodes bruyants : toujours écrits dans le fichier, masqués dans la console.
 MUTE_IN_CONSOLE = {"BD", "BT", "gIG", "gIM", "cMK", "Im", "am", "BN", "cs"}
+# Paquets énormes (listes guildes / stats) : on tronque le log pour éviter
+# d'allouer des chaînes de plusieurs Mo à chaque tick (fuite / pression GC).
+TRUNCATE_LOG = {"gIM", "gIG", "As", "am", "ASK", "ALK", "SL", "ST"}
+LOG_PAYLOAD_MAX = 400
+# Garde-fou mémoire côté relais.
+QUEUE_MAX = 200          # paquets bot en attente (sinon on jette les plus vieux)
+PUMP_BUF_MAX = 2_000_000  # 2 Mo sans délimiteur \x00 → on reset le buffer
 
 # Tout ce qu'on a déjà observé en jeu (récolte, déplacement, chat, guilde...).
 # Un opcode absent de cette liste est du jamais-vu : il est signalé bruyamment
@@ -56,11 +63,21 @@ class Tee:
         self.fh = open(path, "a", encoding="utf-8", buffering=1)
         self.path = path
 
+    def close(self):
+        try:
+            if self.fh and not self.fh.closed:
+                self.fh.close()
+        except Exception:
+            pass
+        self.fh = None
+
     def line(self, direction, opcode, payload, muted):
         # Règle absolue : la journalisation ne doit JAMAIS pouvoir interrompre
         # le relais. Toute erreur ici est avalée — perdre une ligne de log est
         # sans conséquence, perdre la connexion déconnecte le joueur.
         try:
+            if self.fh is None or self.fh.closed:
+                return
             ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
             text = f"[{ts}] {direction} {opcode:<4} | {payload}"
             self.fh.write(text + "\n")
@@ -87,6 +104,8 @@ class Tee:
 
     def note(self, text):
         try:
+            if self.fh is None or self.fh.closed:
+                return
             ts = datetime.now().strftime("%H:%M:%S.%f")[:-3]
             line = f"[{ts}] --- {text}"
             self.fh.write(line + "\n")
@@ -122,30 +141,44 @@ class Session:
         # Fenêtre pendant laquelle on bloque les GKK du client (ils annulent
         # nos déplacements de combat injectés). Voir should_drop_client.
         self._gkk_suppress_until = 0.0
-        # File d'émission du bot + horodatage par paquet (anti-doublon serveur).
-        self._queue = asyncio.Queue()
+        # File bornée : sans maxsize, un drain bloqué faisait gonfler la RAM
+        # sans limite (jusqu'à des dizaines de Go observés).
+        self._queue = asyncio.Queue(maxsize=QUEUE_MAX)
         self._payload_times = {}
         self._sender_task = None
+        self._dead = False
 
     def start_sender(self):
         if self._sender_task is None:
             self._sender_task = asyncio.ensure_future(self._drain())
 
     def stop_sender(self):
+        self._dead = True
         if self._sender_task is not None:
             self._sender_task.cancel()
             self._sender_task = None
+        # Vide la file pour libérer les chaînes retenues.
+        try:
+            while True:
+                self._queue.get_nowait()
+        except Exception:
+            pass
+        self._payload_times.clear()
 
     async def _drain(self):
         """Vide la file en cadençant : ≥ MIN_GAP entre paquets, et jamais plus
-        de SAME_MAX paquets identiques par SAME_WINDOW (on retarde si besoin,
-        on ne jette rien)."""
+        de SAME_MAX paquets identiques par SAME_WINDOW (on retarde si besoin).
+        En cas d'échec d'écriture on arrête : continuer ferait grossir la file."""
         import time
         try:
-            while True:
+            while not self._dead:
                 payload = await self._queue.get()
                 now = time.monotonic()
-                times = self._payload_times.setdefault(payload, [])
+                # Clé courte pour l'anti-doublon : ne pas retenir le payload
+                # entier comme clé de dict (pression mémoire inutile).
+                key = payload if len(payload) <= 64 else (
+                    payload[:48] + f"#{len(payload)}")
+                times = self._payload_times.setdefault(key, [])
                 times[:] = [t for t in times if now - t < self.SAME_WINDOW]
                 if len(times) >= self.SAME_MAX:
                     wait = self.SAME_WINDOW - (now - times[0]) + 0.02
@@ -154,13 +187,20 @@ class Session:
                         now = time.monotonic()
                         times[:] = [t for t in times if now - t < self.SAME_WINDOW]
                 try:
-                    self.log.note(f"BOT -> {payload}")
+                    shown = payload if len(payload) <= LOG_PAYLOAD_MAX else (
+                        payload[:LOG_PAYLOAD_MAX] + f"…(+{len(payload) - LOG_PAYLOAD_MAX})")
+                    self.log.note(f"BOT -> {shown}")
                     self.server_writer.write(payload.encode("latin-1") + b"\n" + DELIM)
                     await self.server_writer.drain()
-                except Exception:
-                    pass
+                except Exception as e:
+                    self._dead = True
+                    try:
+                        self.log.note(f"BOT émission morte : {e!r}")
+                    except Exception:
+                        pass
+                    break
                 times.append(time.monotonic())
-                if len(self._payload_times) > 256:
+                if len(self._payload_times) > 128:
                     self._payload_times = {
                         p: ts for p, ts in self._payload_times.items()
                         if ts and now - ts[-1] < 2.0}
@@ -182,13 +222,31 @@ class Session:
 
     def to_server(self, payload):
         """Met un paquet dans la file d'émission cadencée du bot (voir _drain).
-        Non bloquant : le lissage/anti-doublon se fait à la sortie de la file."""
+        Non bloquant. Si la file est pleine, on jette les plus anciens pour
+        garder les plus récents (évite une file infinie en RAM)."""
+        if self._dead:
+            return
         try:
             self._queue.put_nowait(payload)
-        except Exception:
-            # File indisponible (avant start_sender) : envoi direct de secours.
+            return
+        except asyncio.QueueFull:
+            # Jette jusqu'à ~1/4 des plus anciens, puis réessaie.
+            dropped = 0
             try:
-                self.log.note(f"BOT -> {payload}")
+                while dropped < QUEUE_MAX // 4:
+                    self._queue.get_nowait()
+                    dropped += 1
+            except Exception:
+                pass
+            try:
+                self._queue.put_nowait(payload)
+                if dropped:
+                    self.log.note(f"BOT file saturée — {dropped} paquets jetés")
+            except Exception:
+                pass
+        except Exception:
+            try:
+                self.log.note(f"BOT -> {payload[:LOG_PAYLOAD_MAX]}")
                 self.server_writer.write(payload.encode("latin-1") + b"\n" + DELIM)
             except Exception:
                 pass
@@ -198,8 +256,14 @@ class Session:
         self.client_writer.write(payload.encode("latin-1") + DELIM)
 
 
-def escape(msg):
-    """Rend le paquet affichable en ASCII pur, de façon réversible."""
+def escape(msg, limit=None):
+    """Rend le paquet affichable en ASCII. `limit` tronque avant l'escape
+    (évite d'allouer 2× la taille d'un gIM de plusieurs Mo)."""
+    if limit is not None and len(msg) > limit:
+        head = msg[:limit]
+        return "".join(
+            ch if 32 <= ord(ch) < 127 else f"\\x{ord(ch):02x}" for ch in head
+        ) + f"…(+{len(msg) - limit} o)"
     return "".join(
         ch if 32 <= ord(ch) < 127 else f"\\x{ord(ch):02x}" for ch in msg)
 
@@ -246,6 +310,12 @@ async def pump(reader, writer, direction, log, brain, session, seen_new):
                 await writer.drain()
 
             buf += chunk
+            # Sans \x00 le buffer ne se vide jamais → fuite. On coupe.
+            if len(buf) > PUMP_BUF_MAX:
+                log.note(f"{direction} buffer > {PUMP_BUF_MAX} o sans "
+                         f"délimiteur — reset ({len(buf)} o jetés)")
+                buf = b""
+                continue
             while DELIM in buf:
                 raw, buf = buf.split(DELIM, 1)
                 if not raw:
@@ -263,7 +333,9 @@ async def pump(reader, writer, direction, log, brain, session, seen_new):
                         writer.write(raw + DELIM)
                     await writer.drain()
                 code = opcode_of(msg)
-                shown = escape(msg)
+                # Tronquer AVANT escape pour les paquets lourds (gIM…).
+                lim = LOG_PAYLOAD_MAX if code in TRUNCATE_LOG else None
+                shown = escape(msg, lim)
                 log.line(direction, code, shown, code in MUTE_IN_CONSOLE)
                 if code not in KNOWN_OPCODES and code not in seen_new:
                     seen_new.add(code)
@@ -313,17 +385,20 @@ def make_handler(brain_factory=None):
         # Partagé entre les deux sens : un opcode n'est signalé qu'une fois.
         seen_new = set()
 
-        await asyncio.gather(
-            pump(client_reader, server_writer, "C>S", log, brain, session, seen_new),
-            pump(server_reader, client_writer, "S>C", log, brain, session, seen_new),
-        )
-        session.stop_sender()
-        if brain is not None and hasattr(brain, "close"):
-            try:
-                brain.close()
-            except Exception:
-                pass
-        log.note("session terminée")
+        try:
+            await asyncio.gather(
+                pump(client_reader, server_writer, "C>S", log, brain, session, seen_new),
+                pump(server_reader, client_writer, "S>C", log, brain, session, seen_new),
+            )
+        finally:
+            session.stop_sender()
+            if brain is not None and hasattr(brain, "close"):
+                try:
+                    brain.close()
+                except Exception:
+                    pass
+            log.note("session terminée")
+            log.close()
 
     return on_client
 

@@ -178,6 +178,11 @@ class GameData:
     def model_of(self, uid):
         return self._uid_to_model.get(str(uid))
 
+    def forget_uid(self, uid):
+        """Oublie un exemplaire (objet retiré). Sans ça le dict UID→modèle
+        grossit indéfiniment sur une longue session de farm/craft."""
+        self._uid_to_model.pop(str(uid), None)
+
     # ── restitution ──────────────────────────────────────────────────────────
 
     def item_name(self, uid_or_model):
