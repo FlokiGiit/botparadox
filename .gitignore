@@ -27,3 +27,5 @@ data/spell_svg/
 *.log
 data/bank.json
 data/overlay.json
+# sorties de carte apprises en jouant : propre a chaque joueur
+data/map_exits.json

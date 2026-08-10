@@ -36,7 +36,7 @@ INSTALLER_DIR = os.path.join(PROJECT, "installer")
 # donnerait a chacun les sorts d'une classe qui n'est pas la sienne. Il se
 # reconstruit tout seul au premier paquet ST recu par son proprietaire.
 SKIP_DATA = {"session.json", "client_path.txt", "client_override.txt",
-             "overlay.json", "spells.json"}
+             "overlay.json", "spells.json", "map_exits.json"}
 
 
 def run(cmd, **kw):

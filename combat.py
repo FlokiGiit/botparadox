@@ -246,6 +246,9 @@ class CombatAI:
         # suivant sans redémarrer. None = valeurs par défaut.
         self.stats = stats
 
+        # Invocations qui sont à NOUS (lues dans GA;181) : jamais des cibles.
+        self.my_summons = set()
+
         self.catalog = {}      # (id, niveau) -> Spell
         self.levels = {}       # id -> niveau appris
         self.fighters = {}     # id -> Fighter
@@ -360,10 +363,24 @@ class CombatAI:
                     if steps:
                         f.cell = steps[-1][1]
 
+        elif msg.startswith("GA;181;"):
+            # Invocation : GA;181;<lanceur>;+<case>;1;0;<id invoque>;<template>;…
+            # Sans ça le bot prenait SON Coffre Animé (id négatif, comme les
+            # monstres) pour une cible : il lui tirait dessus tour après tour,
+            # 0 dégât, PA gaspillés — et comme il « avait une cible », il ne se
+            # déplaçait jamais.
+            parts = msg.split(";")
+            if len(parts) > 6:
+                caster, summoned = parts[2], parts[6]
+                if caster == self.char_id and summoned:
+                    self.my_summons.add(summoned)
+                    self.say(f"invocation {summoned} — alliée, jamais ciblée")
+
         elif msg.startswith("GA;103;"):
             # Mort d'un combattant.
             dead = msg.split(";")[2]
             self.fighters.pop(dead, None)
+            self.my_summons.discard(dead)
 
         elif msg.startswith("cMK") and "otation" in msg:
             self._read_confusion(msg)
@@ -693,8 +710,12 @@ class CombatAI:
         return None
 
     def _enemies(self):
+        # `is_monster` ne regarde que le signe de l'identifiant : nos propres
+        # invocations en portent un négatif elles aussi, d'où l'exclusion
+        # explicite (voir le suivi de GA;181).
         return [f for f in self.fighters.values()
-                if f.is_monster and f.id != self.char_id and f.hp > 0]
+                if f.is_monster and f.id != self.char_id and f.hp > 0
+                and f.id not in self.my_summons]
 
     def _read_fight_gm(self, msg):
         """Repère un vrai boss de donjon dans le paquet GM d'ouverture de combat.
@@ -1207,6 +1228,8 @@ class CombatAI:
 
     def reset(self, active=False):
         self.fighters.clear()
+        # Les identifiants sont réattribués à chaque combat.
+        self.my_summons = set()
         self.casts.clear()
         self.playing = False
         self.active = active

@@ -24,6 +24,7 @@ import dashboard
 import gamedata
 import proxy
 from combat import CombatAI, KRALAMOURE_SCRIPT, KRALAMOURE_BOSS_CELL
+import map_exits
 from gamemap import compress_path, is_edge
 
 # Mettre à False pour observer les combats sans que le bot y touche.
@@ -183,6 +184,10 @@ class Brain:
         # ca le message repartait a chaque passage dans la boucle.
         self.edge_said = set()
         self._edges_cache = None
+        # Case d'arrivee du dernier deplacement qu'on a envoye, et carte d'ou
+        # il partait : si un changement de carte suit, cette case EST une
+        # sortie (voir map_exits).
+        self.last_step = None
         self.in_fight = False
         self.groups = {}         # cellule -> identifiant du groupe de monstres
         self.target = None       # cellule visée par la récolte en cours
@@ -404,6 +409,16 @@ class Brain:
 
         elif msg.startswith("GDM|"):
             _, map_id, date, key = msg.split("|")[:4]
+            # Notre dernier deplacement s'est termine par un changement de
+            # carte : sa case d'arrivee est une sortie, on la retient pour ne
+            # plus jamais la fouler par erreur.
+            if self.last_step is not None:
+                prev_map, cell = self.last_step
+                self.last_step = None
+                if prev_map is not None and prev_map != int(map_id):
+                    if map_exits.learn(prev_map, cell):
+                        self.say(f"case {cell} = sortie de la carte {prev_map} "
+                                 f"— retenue")
             self.map_id = int(map_id)
             self.stats.map_id = self.map_id
             self.map_ready = True
@@ -760,11 +775,12 @@ class Brain:
             # Kralamoure : uniquement la case du boss, quoi qu'il y ait d'autre
             # (percepteur, mobs plus proches) sur la carte.
             targets = [c for c in targets if c == only_cell]
-        # Un groupe posé sur un « soleil » (case de bord = changement de carte)
-        # ne peut PAS être agressé : marcher dessus change de carte au lieu
-        # d'ouvrir le combat. On l'ignore quel que soit le réglage, sinon le bot
-        # traverse la carte pour rien et se retrouve ailleurs.
-        on_edge = [c for c in targets if is_edge(c)]
+        # Un groupe posé sur un « soleil » ne peut PAS être agressé : marcher
+        # dessus change de carte au lieu d'ouvrir le combat. On n'écarte que les
+        # cases dont on a CONSTATÉ qu'elles font changer de carte : deviner par
+        # géométrie écartait un quart de la carte et laissait le bot planté
+        # devant des groupes parfaitement attaquables.
+        on_edge = [c for c in targets if c in map_exits.known(self.map_id)]
         if on_edge:
             targets = [c for c in targets if c not in on_edge]
             fresh = [c for c in on_edge if c not in self.edge_said]
@@ -790,7 +806,10 @@ class Brain:
         # « Rester sur la carte » : les cases de bord deviennent elles aussi des
         # obstacles, donc l'itinéraire les contourne. Sans ça un trajet qui
         # longe le bord pouvait franchir un soleil en route.
-        edges = (self._edge_cells()
+        # Option explicite : là on assume d'être conservateur (tout le bord de
+        # la grille, en plus des sorties connues) — l'utilisateur a demandé à ne
+        # pas changer de carte, pas à optimiser le rendement.
+        edges = (self._edge_cells() | set(map_exits.known(self.map_id))
                  if getattr(self.stats, "stay_on_map", False) else frozenset())
         best = None
         for cell in targets:
@@ -820,6 +839,7 @@ class Brain:
         self.engage_deadline = (now + ENGAGE_TIMEOUT_BASE
                                 + steps * ENGAGE_TIMEOUT_PER_STEP)
         self.say(f"attaque du groupe en {cell} ({steps} pas)")
+        self.last_step = (self.map_id, path[-1])
         self.s.to_server("GA001" + compress_path(path))
 
     def _edge_cells(self):
