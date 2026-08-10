@@ -73,6 +73,10 @@
           <CheckBox x:Name="PrepCoffre" Click="OnPrepCoffre" Content="Coffre animé"
                     Foreground="#e6e8eb" VerticalAlignment="Center"
                     ToolTip.Tip="Invoque le Coffre Animé (6019) au tour 1 — tous modes"/>
+          <CheckBox x:Name="ScriptKorriandre" Click="OnScriptKorriandre"
+                    Content="Script Korriandre"
+                    Foreground="#e6e8eb" VerticalAlignment="Center"
+                    ToolTip.Tip="Korriandre : évite les glyphes (ne jamais finir le tour dessus) — farming"/>
           <Border Width="1" Background="#262a33" Margin="6,2"/>
           <Ellipse x:Name="Dot" Width="10" Height="10" Fill="#e05561"
                    VerticalAlignment="Center"/>

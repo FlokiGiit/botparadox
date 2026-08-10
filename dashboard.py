@@ -168,6 +168,8 @@ def combat_state():
         "auto_maitrise": _stats.auto_maitrise,
         "auto_tir": _stats.auto_tir,
         "auto_coffre": _stats.auto_coffre,
+        "fight_scripts": list(_stats.fight_scripts),
+        "script_korriandre": "korriandre" in _stats.fight_scripts,
     }
 
 
@@ -297,6 +299,8 @@ class Stats:
         self.auto_maitrise = False   # Maîtrise de l'Arc (180)
         self.auto_tir = False        # Tir Puissant (166)
         self.auto_coffre = False     # Coffre Animé de Joueur (6019)
+        # Scripts boss (checkbox) : complètent le farming sans le remplacer.
+        self.fight_scripts = []      # ex. ["korriandre"]
         # Reglages de combat de l'onglet Farming. combat_spells est ORDONNE :
         # c'est l'ordre de priorite que l'IA suit a la lettre. Vide = auto
         # (tous les sorts offensifs appris, les plus chers en PA d'abord).
@@ -346,6 +350,7 @@ class Stats:
             self.auto_maitrise = bool(saved.get("auto_maitrise", False))
             self.auto_tir = bool(saved.get("auto_tir", False))
             self.auto_coffre = bool(saved.get("auto_coffre", False))
+            self.fight_scripts = [str(s) for s in saved.get("fight_scripts", [])]
             self.combat_spells = [int(i) for i in saved.get("combat_spells", [])]
             self.combat_buffs = [int(i) for i in saved.get("combat_buffs", [])]
             self.combat_move = bool(saved.get("combat_move", True))
@@ -375,6 +380,7 @@ class Stats:
                            "auto_maitrise": self.auto_maitrise,
                            "auto_tir": self.auto_tir,
                            "auto_coffre": self.auto_coffre,
+                           "fight_scripts": list(self.fight_scripts),
                            "combat_spells": self.combat_spells,
                            "combat_buffs": self.combat_buffs,
                            "combat_move": self.combat_move,
@@ -653,6 +659,8 @@ class Stats:
             "auto_maitrise": self.auto_maitrise,
             "auto_tir": self.auto_tir,
             "auto_coffre": self.auto_coffre,
+            "fight_scripts": list(self.fight_scripts),
+            "script_korriandre": "korriandre" in self.fight_scripts,
             "kills": self.kills,
             "total_harvests": self.total["harvests"] + self.harvests,
             "total_kills": self.total["kills"] + self.kills,
@@ -837,6 +845,11 @@ td{padding:6px 8px;border-top:1px solid #262a33;font-variant-numeric:tabular-num
   <input type="checkbox" id="prepCoffre" onchange="togglePrep('coffre')" style="width:16px;height:16px">
   <span>Coffre animé <span class="sub">(6019, tour 1)</span></span>
 </label>
+<label style="display:inline-flex;align-items:center;gap:8px;margin:0 0 12px 16px;
+              cursor:pointer;font-size:13px;color:#e6e8eb">
+  <input type="checkbox" id="scriptKorriandre" onchange="toggleScript('korriandre')" style="width:16px;height:16px">
+  <span>Script Korriandre <span class="sub">(glyphes — farming)</span></span>
+</label>
 <div class="grid">
   <div class="card farmOnly"><div class="k">Monstres tués</div><div class="v" id="kills">0</div><div class="sub" id="killsRate"></div></div>
   <div class="card farmOnly"><div class="k">XP gagnée</div><div class="v" id="xpg">0</div><div class="sub" id="xpgRate"></div></div>
@@ -915,6 +928,7 @@ async function tick(){
   document.getElementById('prepMaitrise').checked=!!d.auto_maitrise;
   document.getElementById('prepTir').checked=!!d.auto_tir;
   document.getElementById('prepCoffre').checked=!!d.auto_coffre;
+  document.getElementById('scriptKorriandre').checked=!!d.script_korriandre;
   document.querySelectorAll('.farmOnly').forEach(e=>e.style.display=(d.mode==='farm'||d.mode==='kralamoure')?'':'none');
   document.querySelectorAll('.harvestOnly').forEach(e=>e.style.display=d.mode==='harvest'?'':'none');
   document.getElementById('kills').textContent=fmt(d.kills);
@@ -943,6 +957,7 @@ async function tick(){
 async function setMode(m){ try{ await fetch('/mode/'+m); tick(); }catch(e){} }
 async function toggleSoul(){ try{ await fetch('/capture/toggle'); tick(); }catch(e){} }
 async function togglePrep(k){ try{ await fetch('/prep/toggle/'+k); tick(); }catch(e){} }
+async function toggleScript(k){ try{ await fetch('/script/toggle/'+k); tick(); }catch(e){} }
 
 // ── sorts de combat ──
 // Le panneau ne se redessine qu'au chargement et après une action : le
@@ -1066,6 +1081,30 @@ async def _handle(reader, writer):
                 "auto_maitrise": _stats.auto_maitrise,
                 "auto_tir": _stats.auto_tir,
                 "auto_coffre": _stats.auto_coffre,
+            }).encode()
+            writer.write(_headers("application/json", len(body)) + body)
+            await writer.drain()
+            return
+
+        if path.startswith("/script/toggle/"):
+            key = path.rsplit("/", 1)[-1].split("?")[0]
+            from fight_scripts import known_ids
+            labels = {"korriandre": "Script Korriandre"}
+            if key in known_ids():
+                cur = list(_stats.fight_scripts)
+                if key in cur:
+                    cur.remove(key)
+                    on = False
+                else:
+                    cur.append(key)
+                    on = True
+                _stats.fight_scripts = cur
+                _stats.persist()
+                _stats.event("info", labels.get(key, key) + " " +
+                             ("activé" if on else "désactivé"))
+            body = json.dumps({
+                "fight_scripts": list(_stats.fight_scripts),
+                "script_korriandre": "korriandre" in _stats.fight_scripts,
             }).encode()
             writer.write(_headers("application/json", len(body)) + body)
             await writer.drain()

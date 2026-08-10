@@ -54,7 +54,7 @@ KNOWN_OPCODES = {
     "GDF", "GDK", "GDM", "GKK", "GM", "GV", "Gp", "Gr", "Gz", "HG", "ILS",
     "IQ", "Im", "Ir", "JN", "JO", "JS", "JX", "OQ", "OS", "Ow", "RMC", "RMD",
     "Rx", "SL", "ST", "SV", "ZS", "al", "am", "cC", "cMK", "cs", "eL", "fC",
-    "gIG", "gIM", "gSR", "xC", "?",
+    "gIG", "gIM", "gSR", "xC", "GDZ", "GDC", "?",
 }
 
 

@@ -38,6 +38,7 @@ public partial class MainWindow : Window
     const string ModeUrl = "http://127.0.0.1:8765/mode/";
     const string CaptureUrl = "http://127.0.0.1:8765/capture/toggle";
     const string PrepUrl = "http://127.0.0.1:8765/prep/toggle/";
+    const string ScriptUrl = "http://127.0.0.1:8765/script/toggle/";
 
     // Les icônes sont lues directement dans les ressources du client plutôt
     // que servies par HTTP : c'est le même disque, autant éviter le détour.
@@ -365,6 +366,10 @@ public partial class MainWindow : Window
     {
         try { await _http.GetStringAsync(PrepUrl + "coffre"); } catch { }
     }
+    async void OnScriptKorriandre(object? sender, RoutedEventArgs e)
+    {
+        try { await _http.GetStringAsync(ScriptUrl + "korriandre"); } catch { }
+    }
 
     async Task SetMode(string mode)
     {
@@ -515,6 +520,8 @@ public partial class MainWindow : Window
             PrepTir.IsChecked = tir.GetBoolean();
         if (root.TryGetProperty("auto_coffre", out var coffre))
             PrepCoffre.IsChecked = coffre.GetBoolean();
+        if (root.TryGetProperty("script_korriandre", out var korri))
+            ScriptKorriandre.IsChecked = korri.GetBoolean();
 
         Kills.Text = root.GetProperty("kills").GetInt32().ToString("N0");
         KillsRate.Text = $"{root.GetProperty("kills_per_hour").GetDouble():0} / heure";

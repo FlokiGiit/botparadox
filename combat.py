@@ -29,6 +29,7 @@ import os
 
 import losrange
 from boss_ids import DUNGEON_BOSS_IDS
+from fight_scripts import create_scripts
 
 # Découpage d'une entrée de ST.
 ST_PA = 2
@@ -287,6 +288,9 @@ class CombatAI:
         self._no_spell_warned = False   # sélection inadaptée déjà signalée
         self._nileza_pack_warned = False  # pack multi-Nileza déjà signalé
         self._heal_prio = False         # priorité vol de vie (hystérésis PV)
+        # Scripts boss (checkbox) : Korriandre, etc. État vidé à chaque reset.
+        self.scripts = create_scripts()
+        self._korriandre_armed_said = False
         self._load_catalog()
 
     # ── lecture du flux ──────────────────────────────────────────────────────
@@ -315,6 +319,7 @@ class CombatAI:
 
         elif msg.startswith("GM|"):
             self._read_fight_gm(msg)
+            self._refresh_scripts()
 
         elif msg.startswith("GTM|"):
             for blob in msg.split("|")[1:]:
@@ -335,6 +340,11 @@ class CombatAI:
             if who == self.char_id and not self.playing:
                 self.playing = True
                 asyncio.create_task(self._play_turn())
+
+        elif msg.startswith("GDZ"):
+            # Glyphes (Korriandre couleur 4, etc.) — relayé aux scripts cochés.
+            for script in self.scripts.values():
+                script.on_packet(msg)
 
         elif msg.startswith("GA0;1;"):
             # Déplacement en combat : GA0;1;<id>;<chemin>. La dernière case du
@@ -357,6 +367,34 @@ class CombatAI:
 
         elif msg.startswith("cMK") and "otation" in msg:
             self._read_confusion(msg)
+
+    def _refresh_scripts(self):
+        """Met à jour l'activation des scripts (checkbox + templates présents)."""
+        enabled = set(self._setting("fight_scripts", []) or [])
+        for sid, script in self.scripts.items():
+            script.on_templates(self.fighter_templates, sid in enabled)
+        korri = self.scripts.get("korriandre")
+        if (korri is not None and korri.active
+                and not self._korriandre_armed_said):
+            self._korriandre_armed_said = True
+            self.say("script Korriandre armé — je ne finis pas mon tour "
+                     "sur une glyphe")
+
+    def _script_forbids_cell(self, cell):
+        """True si un script actif interdit de s'arrêter / finir sur `cell`."""
+        if cell is None:
+            return False
+        for script in self.scripts.values():
+            if script.active and script.forbids_stay(cell):
+                return True
+        return False
+
+    def _script_forbidden_cells(self):
+        out = set()
+        for script in self.scripts.values():
+            if script.active:
+                out |= script.end_turn_forbidden()
+        return out
 
     def _read_confusion(self, msg):
         """Comte Harebourg — Confusion : le serveur fait pivoter la case ciblée
@@ -804,6 +842,9 @@ class CombatAI:
                    and losrange.distance(cell, n.cell) == NILEZA_MOLALITY_RADIUS
                    for n in enemies):
                 continue
+            # Scripts (Korriandre…) : ne pas s'arrêter sur une glyphe.
+            if self._script_forbids_cell(cell):
+                continue
             occ = (occupied - {me.cell}) | {cell}
             hittable = self._hittable_enemies(cell)
             if not hittable:
@@ -841,6 +882,8 @@ class CombatAI:
             for c, steps in dist.items():
                 if c == me.cell:
                     continue
+                if self._script_forbids_cell(c):
+                    continue
                 d = losrange.distance(c, target.cell)
                 if any(self._is_nileza(n)
                        and losrange.distance(c, n.cell) == NILEZA_MOLALITY_RADIUS
@@ -877,6 +920,9 @@ class CombatAI:
                  f"{len(self._enemies())} ennemi(s)")
 
         self._turn_no += 1
+        self._refresh_scripts()
+        for script in self.scripts.values():
+            script.on_turn_start(my_cell)
 
         # Mode Observateur + prep/capture : le bot ne joue pas le tour (le
         # joueur s'en charge), il lance seulement les sorts cochés puis rend
@@ -943,6 +989,11 @@ class CombatAI:
             # vaut mieux qu'un bot qui s'entête et fait n'importe quoi.
             self.say(f"erreur en combat ({e!r}) -> je passe le tour")
         finally:
+            # Korriandre etc. : quitter la glyphe AVANT Gt, sinon mort serveur.
+            try:
+                await self._escape_script_cells()
+            except Exception as e:
+                self.say(f"script fuite glyphe : {e!r}")
             await asyncio.sleep(DELAY_BEFORE_END_TURN)
             # Le dernier sort tue souvent le monstre : le combat se termine
             # pendant qu'on attend. Envoyer un Gt après coup serait un paquet
@@ -950,6 +1001,39 @@ class CombatAI:
             if self.active:
                 self.s.to_server("Gt")
             self.playing = False
+
+    async def _escape_script_cells(self):
+        """Avant de passer : quitter toute case interdite par un script actif.
+
+        Korriandre : la case de début de tour (et toute glyphe) tue en fin de
+        tour — on bouge d'au moins 1 PM vers la case sûre la plus proche."""
+        forbidden = self._script_forbidden_cells()
+        if not forbidden or not self.active:
+            return
+        me = self.fighters.get(self.char_id)
+        if me is None or self.gmap is None or self.pm <= 0:
+            return
+        if me.cell not in forbidden:
+            return
+        blocked = {f.cell for f in self.fighters.values() if f.cell != me.cell}
+        came, dist = self._reachable(me.cell, self.pm, blocked)
+        candidates = [(steps, cell) for cell, steps in dist.items()
+                      if cell != me.cell and cell not in forbidden]
+        if not candidates:
+            self.say("script : aucune case sûre joignable — risque glyphe")
+            return
+        steps, cell = min(candidates)
+        from gamemap import compress_path
+        path = self._path(came, cell)
+        encoded = compress_path(path)
+        if not encoded:
+            return
+        self.say(f"script : dégagement glyphe -> {cell} "
+                 f"({steps} PM, {len(forbidden)} cases interdites)")
+        await self._combat_move(encoded)
+        me.cell = cell
+        me.pm = max(0, me.pm - steps)
+        self.pm = max(0, self.pm - steps)
 
     async def _play_script(self):
         """Rejoue un script de combat fixe (cases figées) : un tour = une liste
@@ -1084,3 +1168,6 @@ class CombatAI:
         self.comte_turns = 0
         self._nileza_pack_warned = False
         self._heal_prio = False
+        self._korriandre_armed_said = False
+        for script in self.scripts.values():
+            script.reset()
