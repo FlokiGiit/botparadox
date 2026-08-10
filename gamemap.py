@@ -24,6 +24,7 @@ from apppaths import MAPS_DIR as CACHE_DIR
 # 16 rangées de 14, soit 15*17 + 14*16 = 479 cellules.
 WIDTH = 15
 ROW_STRIDE = WIDTH * 2 - 1  # 29 cellules par paire de rangées
+ROWS = 33                   # 17 rangées larges + 16 décalées
 
 # Directions Dofus : 0=E, 1=SE, 2=S, 3=SO, 4=O, 5=NO, 6=N, 7=NE.
 # Le décalage de colonne dépend de la parité de la demi-rangée, sauf pour les
@@ -60,6 +61,23 @@ def from_rowcol(row, col):
     if not 0 <= col < limit:
         return None
     return pair * ROW_STRIDE + (WIDTH if odd else 0) + col
+
+
+def is_edge(cell):
+    """Vrai si la cellule touche le bord de la carte.
+
+    C'est là et seulement là que le jeu place les « soleils » de changement de
+    carte : marcher sur une de ces cases change de carte au lieu d'ouvrir le
+    combat. Verifie sur un cas reel : le bot a change de carte en arrivant en
+    26, soit la rangee 1 (bord haut).
+
+    Le test est geometrique (aucune donnee serveur ne liste ces cases : le SWF
+    de carte n'expose que width/height/mapData), donc volontairement large —
+    les deux demi-rangees du haut et du bas, la premiere et la derniere colonne.
+    """
+    row, col = rowcol(cell)
+    limit = WIDTH - 1 if row % 2 else WIDTH
+    return row <= 1 or row >= ROWS - 2 or col == 0 or col == limit - 1
 
 
 def compress_path(cells):
@@ -295,7 +313,7 @@ class GameMap:
         """Vue ASCII, pour vérifier d'un coup d'oeil que le parsing est bon."""
         marks = marks or {}
         lines = []
-        for row in range(33):
+        for row in range(ROWS):
             wide = row % 2 == 0
             count = WIDTH if wide else WIDTH - 1
             base = (row // 2) * ROW_STRIDE + (0 if wide else WIDTH)

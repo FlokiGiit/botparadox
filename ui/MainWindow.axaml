@@ -191,6 +191,13 @@
               <Button x:Name="TabKral" Click="OnKralamoure" Classes="mode"
                       Content="Kralamoure"
                       ToolTip.Tip="Combat scripté du Kralamoure Géant (placement fixe)."/>
+              <CheckBox x:Name="StayMap" Click="OnStayMap" Margin="10,4,0,0"
+                        FontSize="12" Content="Rester sur la carte"
+                        ToolTip.Tip="Le bot n'emprunte plus les cases de bord (les « soleils ») : il reste sur sa carte et attend les repops."/>
+              <TextBlock x:Name="StayHint" Classes="sub" IsVisible="False"
+                         FontSize="10.5" TextWrapping="Wrap" Margin="10,0,0,0"
+                         Foreground="{StaticResource BpFaintBrush}"
+                         Text="🔒 sans objet en Observer : le bot ne se déplace pas."/>
             </StackPanel>
 
             <StackPanel Spacing="5">

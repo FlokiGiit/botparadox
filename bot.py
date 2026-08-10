@@ -24,7 +24,7 @@ import dashboard
 import gamedata
 import proxy
 from combat import CombatAI, KRALAMOURE_SCRIPT, KRALAMOURE_BOSS_CELL
-from gamemap import compress_path
+from gamemap import compress_path, is_edge
 
 # Mettre à False pour observer les combats sans que le bot y touche.
 AUTO_COMBAT = True
@@ -179,6 +179,10 @@ class Brain:
         self.paused_until = 0.0
         self.client_sent_gkk1 = False
         self.last_blocked = None
+        # Groupes deja signales comme poses sur un soleil (par carte) : sans
+        # ca le message repartait a chaque passage dans la boucle.
+        self.edge_said = set()
+        self._edges_cache = None
         self.in_fight = False
         self.groups = {}         # cellule -> identifiant du groupe de monstres
         self.target = None       # cellule visée par la récolte en cours
@@ -652,6 +656,7 @@ class Brain:
                 None, load_map, map_id, date, key)
             # L'IA en a besoin pour calculer les zones d'effet.
             self.combat.gmap = self.gmap
+            self.edge_said.clear()
             self.say(f"carte {map_id} chargée "
                      f"({sum(1 for i in range(len(self.gmap)) if self.gmap.walkable(i))} "
                      f"cellules praticables)")
@@ -755,6 +760,20 @@ class Brain:
             # Kralamoure : uniquement la case du boss, quoi qu'il y ait d'autre
             # (percepteur, mobs plus proches) sur la carte.
             targets = [c for c in targets if c == only_cell]
+        # Un groupe posé sur un « soleil » (case de bord = changement de carte)
+        # ne peut PAS être agressé : marcher dessus change de carte au lieu
+        # d'ouvrir le combat. On l'ignore quel que soit le réglage, sinon le bot
+        # traverse la carte pour rien et se retrouve ailleurs.
+        on_edge = [c for c in targets if is_edge(c)]
+        if on_edge:
+            targets = [c for c in targets if c not in on_edge]
+            fresh = [c for c in on_edge if c not in self.edge_said]
+            if fresh:
+                self.edge_said.update(fresh)
+                self.say(f"groupe(s) sur une case de changement de carte "
+                         f"({', '.join(str(c) for c in fresh[:4])}) — "
+                         f"injoignables : marcher dessus change de carte au "
+                         f"lieu d'attaquer, déplace-les (.movemobs)")
         if not targets:
             if self.last_blocked != "vide-farm":
                 extra = f" — je cible {only_cell}" if only_cell is not None else ""
@@ -767,9 +786,15 @@ class Brain:
         # Les autres groupes sont des obstacles : marcher dessus déclencherait le
         # mauvais combat, et le serveur tronque un chemin qui traverse quelqu'un.
         # On les contourne, sauf celui qu'on vise.
+        #
+        # « Rester sur la carte » : les cases de bord deviennent elles aussi des
+        # obstacles, donc l'itinéraire les contourne. Sans ça un trajet qui
+        # longe le bord pouvait franchir un soleil en route.
+        edges = (self._edge_cells()
+                 if getattr(self.stats, "stay_on_map", False) else frozenset())
         best = None
         for cell in targets:
-            path = self._engage_path(cell, set(targets) - {cell})
+            path = self._engage_path(cell, set(targets) - {cell}, edges)
             # Un chemin sans déplacement veut dire qu'on est déjà sur la case :
             # le groupe n'y est plus, aucun combat ne se déclenchera.
             if path and len(path) > 1 and (best is None or len(path) < len(best[1])):
@@ -797,7 +822,15 @@ class Brain:
         self.say(f"attaque du groupe en {cell} ({steps} pas)")
         self.s.to_server("GA001" + compress_path(path))
 
-    def _engage_path(self, cell, blocked):
+    def _edge_cells(self):
+        """Cases de bord de la carte courante, mémorisées : la liste ne dépend
+        que de la géométrie, identique pour toutes les cartes."""
+        if self._edges_cache is None:
+            self._edges_cache = frozenset(
+                c for c in range(len(self.gmap)) if is_edge(c))
+        return self._edges_cache
+
+    def _engage_path(self, cell, blocked, hard=frozenset()):
         """Chemin pour aller agresser le groupe en `cell`, ou None.
 
         Un mob sur case marchable s'agresse en marchant dessus. Sur case NON
@@ -806,9 +839,11 @@ class Brain:
         alors le combat, comme le vrai client.
 
         Si le contournement des autres groupes ne donne rien, on retente sans :
-        mieux vaut un chemin imparfait que rester planté.
+        mieux vaut un chemin imparfait que rester planté. `hard`, en revanche,
+        n'est jamais abandonné — c'est ce qui garantit qu'avec « rester sur la
+        carte » aucun repli ne fait franchir un soleil.
         """
-        for avoid in (blocked, set()):
+        for avoid in (set(blocked) | set(hard), set(hard)):
             if self.gmap.walkable(cell):
                 path = self.gmap.find_path(self.pos, cell, avoid)
             else:

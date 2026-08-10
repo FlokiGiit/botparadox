@@ -195,6 +195,7 @@ def combat_state():
         "auto_coffre": _stats.auto_coffre,
         "fight_scripts": list(_stats.fight_scripts),
         "script_korriandre": "korriandre" in _stats.fight_scripts,
+        "stay_on_map": _stats.stay_on_map,
     }
 
 
@@ -332,6 +333,9 @@ class Stats:
         self.auto_coffre = False     # Coffre Animé de Joueur (6019)
         # Scripts boss (checkbox) : complètent le farming sans le remplacer.
         self.fight_scripts = []      # ex. ["korriandre"]
+        # Farming : ne jamais fouler une case de changement de carte. Le bot
+        # reste alors sur sa carte et attend les repops au lieu de partir.
+        self.stay_on_map = False
         # Reglages de combat de l'onglet Farming. combat_spells est ORDONNE :
         # c'est l'ordre de priorite que l'IA suit a la lettre. Vide = auto
         # (tous les sorts offensifs appris, les plus chers en PA d'abord).
@@ -378,6 +382,7 @@ class Stats:
             self.auto_tir = bool(saved.get("auto_tir", False))
             self.auto_coffre = bool(saved.get("auto_coffre", False))
             self.fight_scripts = [str(s) for s in saved.get("fight_scripts", [])]
+            self.stay_on_map = bool(saved.get("stay_on_map", False))
             self.combat_spells = [int(i) for i in saved.get("combat_spells", [])]
             self.combat_buffs = [int(i) for i in saved.get("combat_buffs", [])]
             self.combat_move = bool(saved.get("combat_move", True))
@@ -408,6 +413,7 @@ class Stats:
                            "auto_tir": self.auto_tir,
                            "auto_coffre": self.auto_coffre,
                            "fight_scripts": list(self.fight_scripts),
+                           "stay_on_map": self.stay_on_map,
                            "combat_spells": self.combat_spells,
                            "combat_buffs": self.combat_buffs,
                            "combat_move": self.combat_move,
@@ -669,6 +675,7 @@ class Stats:
             "auto_coffre": self.auto_coffre,
             "fight_scripts": list(self.fight_scripts),
             "script_korriandre": "korriandre" in self.fight_scripts,
+            "stay_on_map": self.stay_on_map,
             "kills": self.kills,
             "total_harvests": self.total["harvests"] + self.harvests,
             "total_kills": self.total["kills"] + self.kills,
@@ -822,6 +829,10 @@ td{padding:6px 8px;border-top:1px solid #2a2022;font-variant-numeric:tabular-num
 .tabs{display:flex;gap:8px;margin-bottom:16px}
 .tabs button{background:#1f1819;color:#9a8c8b;border:1px solid #2a2022;border-radius:8px;padding:8px 18px;font:inherit;cursor:pointer}
 .tabs button.on{background:#c4675f;color:#150f0f;border-color:#c4675f;font-weight:600}
+.stay{display:inline-flex;align-items:center;gap:8px;margin-left:6px;font-size:13px;
+      color:#9a8c8b;cursor:pointer}
+.stay input{width:15px;height:15px;accent-color:#c4675f}
+.stay.lk{opacity:.4;cursor:not-allowed}
 .it{display:flex;align-items:center;gap:8px}
 .it img{width:26px;height:26px;object-fit:contain;flex:none}
 .ei{width:18px;height:18px;object-fit:contain;flex:none;margin-right:-4px}
@@ -864,6 +875,9 @@ td{padding:6px 8px;border-top:1px solid #2a2022;font-variant-numeric:tabular-num
   <button id="tObserve" onclick="setMode('off')">Observer</button>
   <button id="tFarm" onclick="setMode('farm')">Farming</button>
   <button id="tKrala" onclick="setMode('kralamoure')" title="Combat scripté du Kralamoure Géant (placement fixe)">Kralamoure</button>
+  <label class="stay" id="labStay" title="Le bot n'emprunte plus les cases de bord (les « soleils ») : il reste sur sa carte et attend les repops.">
+    <input type="checkbox" id="stayMap" onchange="toggleStay()">
+    <span>Rester sur la carte</span></label>
 </div>
 <!-- Assistance : regroupee par ce qu'elle fait, et non melangee au choix du
      mode. Prep et Capture agissent dans TOUS les modes ; les scripts n'ont de
@@ -976,6 +990,9 @@ async function tick(){
   const obs=d.mode==='off';
   document.getElementById('asMode').textContent='mode : '+(
     obs?'Observer':d.mode==='kralamoure'?'Kralamoure':d.mode==='harvest'?'Récolte':'Farming');
+  document.getElementById('stayMap').checked=!!d.stay_on_map;
+  document.getElementById('stayMap').disabled=obs;
+  document.getElementById('labStay').className='stay'+(obs?' lk':'');
   document.getElementById('scriptKorriandre').disabled=obs;
   document.getElementById('labKorri').className=obs?'lk':'';
   document.getElementById('korriHint').style.display=obs?'block':'none';
@@ -1003,6 +1020,7 @@ async function setMode(m){ try{ await fetch('/mode/'+m); tick(); }catch(e){} }
 async function toggleSoul(){ try{ await fetch('/capture/toggle'); tick(); }catch(e){} }
 async function togglePrep(k){ try{ await fetch('/prep/toggle/'+k); tick(); }catch(e){} }
 async function toggleScript(k){ try{ await fetch('/script/toggle/'+k); tick(); }catch(e){} }
+async function toggleStay(){ try{ await fetch('/stay/toggle'); tick(); }catch(e){} }
 
 // ── sorts de combat ──
 // Le panneau ne se redessine qu'au chargement et après une action : le
@@ -1108,6 +1126,16 @@ async def _handle(reader, writer):
             _stats.event("info", "capture d'âmes " +
                          ("activée" if _stats.capture_souls else "désactivée"))
             body = json.dumps({"capture_souls": _stats.capture_souls}).encode()
+            writer.write(_headers("application/json", len(body)) + body)
+            await writer.drain()
+            return
+
+        if path.startswith("/stay/toggle"):
+            _stats.stay_on_map = not _stats.stay_on_map
+            _stats.persist()
+            _stats.event("info", "rester sur la carte : " +
+                         ("oui" if _stats.stay_on_map else "non"))
+            body = json.dumps({"stay_on_map": _stats.stay_on_map}).encode()
             writer.write(_headers("application/json", len(body)) + body)
             await writer.drain()
             return
