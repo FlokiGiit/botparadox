@@ -770,8 +770,35 @@ class CombatAI:
         if not landings:
             self.say("coffre animé : aucune case libre à portée")
             return False
-        # Case la plus proche (moins de risque de LdV / chemin bloqué).
-        cell = min(landings, key=lambda c: losrange.distance(my_cell, c))
+        # Le coffre est une créature : il BLOQUE la ligne de vue. Posé au plus
+        # près, il se retrouvait souvent entre nous et les monstres, et plus
+        # aucun sort ne passait ensuite. On compte donc, pour chaque case
+        # possible, combien d'ennemis actuellement visibles cesseraient de
+        # l'être, et on garde une case qui n'en masque aucun (la plus proche à
+        # égalité, pour rester bon marché en portée).
+        visible = [e.cell for e in self._enemies()
+                   if losrange.check_los(self.gmap, my_cell, e.cell,
+                                         occupied - {e.cell})]
+
+        def masked(cell):
+            blockers = (occupied | {cell})
+            return sum(1 for ec in visible
+                       if not losrange.check_los(self.gmap, my_cell, ec,
+                                                 blockers - {ec}))
+
+        # À masquage égal, on le pose le plus loin possible des monstres : posé
+        # collé à nous il redevenait gênant dès que les mobs se déplaçaient
+        # (12 % des cas au tour suivant contre 1 % en le reculant).
+        def far_from_enemies(cell):
+            return min((losrange.distance(cell, e.cell)
+                        for e in self._enemies()), default=0)
+
+        cell = min(landings, key=lambda c: (masked(c), -far_from_enemies(c),
+                                            losrange.distance(my_cell, c)))
+        hidden = masked(cell)
+        if hidden:
+            self.say(f"coffre animé : aucune case neutre — {hidden} ennemi(s) "
+                     f"masqué(s) depuis {cell}")
         self.say(f"coffre animé ({SPELL_COFFRE_ANIME}) sur {cell} — {self.pa} PA")
         self.s.to_server(f"GA300{SPELL_COFFRE_ANIME};{cell}")
         self.pa -= sp.pa
@@ -864,7 +891,7 @@ class CombatAI:
                 target = min(nilezas, key=lambda n: (
                     self._nileza_adjacent_count(n),
                     losrange.distance(me.cell, n.cell)))
-                goal_dist = NILEZA_MELEE_DIST
+                goal = (NILEZA_MELEE_DIST, NILEZA_MELEE_DIST)
             elif nilezas:
                 # Sous Liqueur : viser un isolé à >2 PO, sinon rester loin.
                 isolated = [n for n in nilezas
@@ -873,11 +900,23 @@ class CombatAI:
                     return None
                 target = min(isolated,
                              key=lambda n: losrange.distance(me.cell, n.cell))
-                goal_dist = NILEZA_MOLALITY_RADIUS + 1
+                goal = (NILEZA_MOLALITY_RADIUS + 1, 99)
             else:
                 target = min(enemies,
                              key=lambda e: losrange.distance(me.cell, e.cell))
-                goal_dist = 1
+                # Se rapprocher, c'est aller là où on pourra TIRER : la portée
+                # du sort prioritaire, pas le corps à corps. Coller un monstre
+                # avec un arc n'avance à rien et se prend les ripostes.
+                goal = ((spells[0].range_min, spells[0].range_max)
+                        if spells else (1, 1))
+
+            def gap(d):
+                """Ce qu'il manque (ou ce qu'il y a en trop) pour être à bonne
+                distance : 0 dès qu'on est dans la fourchette visée."""
+                if d < goal[0]:
+                    return goal[0] - d
+                return max(0, d - goal[1])
+
             scored = []
             for c, steps in dist.items():
                 if c == me.cell:
@@ -889,9 +928,12 @@ class CombatAI:
                        and losrange.distance(c, n.cell) == NILEZA_MOLALITY_RADIUS
                        for n in enemies):
                     continue
-                # Plus on est proche de la distance-cible, mieux c'est.
-                scored.append((abs(d - goal_dist), d if d >= goal_dist else 99,
-                               steps, c))
+                # La ligne de vue passe AVANT la distance : sans elle, le bot se
+                # rapprochait derrière un décor et restait planqué tour après
+                # tour, incapable de tirer sur une cible pourtant à portée.
+                seen = losrange.check_los(self.gmap, c, target.cell,
+                                          (occupied - {c, target.cell}))
+                scored.append((0 if seen else 1, gap(d), steps, c))
             if not scored:
                 return None
             best = (None, min(scored)[3])
