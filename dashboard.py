@@ -126,6 +126,27 @@ def _save_overlay_geo(geo):
         pass
 
 
+def fetch_ladder_row(player_id, name=""):
+    """Ligne du joueur dans le Ladder General du serveur, ou None.
+
+    Passe le cap : au-dela du niveau 16000 le serveur ne fait plus monter le
+    niveau (le paquet As annonce « palier suivant = xp+1 »), la progression
+    continue en niveaux **Omega**. Cette valeur n'existe que la, dans le
+    panneau du client — d'ou la lecture par le pont.
+
+    Bloquant (reseau) : a appeler dans un thread, et rarement (le panneau
+    annonce lui-meme rateLimitMs=1000, et c'est l'API du serveur).
+    """
+    res = _post_bridge({"panelId": "ladder-general", "action": "refresh",
+                        "params": {"board": "player-xp-total",
+                                   "search": name or "", "page": 1}})
+    rows = ((res or {}).get("data") or {}).get("rows") or []
+    for row in rows:
+        if str(row.get("playerId")) == str(player_id):
+            return row
+    return None
+
+
 _HARVEST_JOBS = None
 
 
@@ -321,6 +342,12 @@ class Stats:
         self.logs = deque(maxlen=200)
         self._fight_started = None
         self.level = None
+        # Progression au-dela du cap : niveaux Omega et rang de prestige, lus
+        # dans le Ladder General du client (le flux de jeu ne les donne pas).
+        self.omega = None
+        self.prestige_rank = None
+        self.ladder_rank = None
+        self.xp_total = None
         self.xp = None           # (actuel, plancher du niveau, palier suivant)
         self.jobs = {}           # numéro de métier -> (niveau, plancher, xp, suivant)
         # Avant _restore : sinon la restauration des cibles serait ecrasee.
@@ -441,6 +468,29 @@ class Stats:
             return int(self.bag.get(self.PRESTIGE_MODEL, 0))
         except (AttributeError, TypeError, ValueError):
             return 0
+
+    def set_ladder(self, row):
+        """Applique une ligne du Ladder General (voir fetch_ladder_row)."""
+        if not row:
+            return False
+        def _int(v):
+            try:
+                return int(str(v).replace(" ", ""))
+            except (TypeError, ValueError):
+                return None
+        before = self.omega
+        if str(row.get("secondaryLabel", "")).lower() == "omega":
+            self.omega = _int(row.get("secondaryValue"))
+        self.ladder_rank = _int(row.get("rank"))
+        self.xp_total = _int(row.get("score"))
+        detail = str(row.get("detailText") or "")
+        if detail.lower().startswith("prestige"):
+            self.prestige_rank = _int(detail.split()[-1])
+        if row.get("level"):
+            self.level = _int(row.get("level")) or self.level
+        if self.omega is not None and before is not None and self.omega > before:
+            self.event("xp", f"niveau Omega {self.omega} !")
+        return True
 
     def add_prestige(self, n):
         """Comptabilise n jetons de prestige gagnes (depuis le bilan de combat)."""
@@ -707,6 +757,10 @@ class Stats:
             "session_kamas": self._kamas_gained(),
             "prestige": self.prestige,
             "total_prestige": self.prestige_held(),
+            "omega": self.omega,
+            "prestige_rank": self.prestige_rank,
+            "ladder_rank": self.ladder_rank,
+            "xp_total": self.xp_total,
             "xp": self._xp_progress(),
             "jobs": self._job_rows(gd),
             "events": [self._render_event(e, gd) for e in self.events],

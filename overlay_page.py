@@ -102,7 +102,8 @@ input::placeholder{color:var(--faint)}
   <div class="sum">
     <div class="stat inv"><div class="lbl">Kamas inventaire</div><div class="val" id="sinv">0</div></div>
     <div class="stat lvl"><div class="lbl">Niveau</div><div class="val" id="slvl">—</div>
-      <div class="sub" id="slvlsub">session +0</div></div>
+      <div class="sub" id="slvlsub">session +0</div>
+      <div class="sub" id="slvlomega" title="Progression au-dela du cap, telle que publiee par le classement du serveur (recalculee a son redemarrage)"></div></div>
     <div class="stat xp"><div class="lbl">XP session</div><div class="val" id="sxp">0</div></div>
     <div class="stat kam"><div class="lbl">Kamas session</div><div class="val" id="skam">0</div></div>
     <div class="stat jet wide"><div class="lbl">Jetons de prestige</div>
@@ -215,6 +216,10 @@ async function tick(){
   const lvl=d.level;
   document.getElementById("slvl").textContent=(lvl==null||lvl==="")?"—":String(lvl);
   document.getElementById("slvlsub").textContent="session +"+(d.session_levels||0);
+  // Au-dela du cap le niveau ne bouge plus : c'est l'Omega qui progresse.
+  document.getElementById("slvlomega").textContent=
+    (d.omega!=null?("Ω "+d.omega):"")
+    +(d.prestige_rank!=null?((d.omega!=null?" · ":"")+"P"+d.prestige_rank):"");
   document.getElementById("sjet").textContent="+"+compact(d.prestige||0);
   document.getElementById("sjettot").textContent=
     d.total_prestige?("total "+compact(d.total_prestige)):"";

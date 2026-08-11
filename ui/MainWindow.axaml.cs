@@ -598,6 +598,14 @@ public partial class MainWindow : Window
         Level.Text = lvl.ValueKind == JsonValueKind.Number ? lvl.GetInt32().ToString() : "—";
         var lvlGain = root.TryGetProperty("session_levels", out var sl) ? sl.GetInt32() : 0;
         LevelGain.Text = lvlGain > 0 ? $"+{lvlGain}" : "";
+        // Passé le cap (16000), le niveau ne bouge plus : c'est l'Oméga qui
+        // progresse. La valeur vient du classement du serveur, via le panneau.
+        var bits = new List<string>();
+        if (root.TryGetProperty("omega", out var om) && om.ValueKind == JsonValueKind.Number)
+            bits.Add($"Ω {om.GetInt32()}");
+        if (root.TryGetProperty("prestige_rank", out var pr) && pr.ValueKind == JsonValueKind.Number)
+            bits.Add($"P{pr.GetInt32()}");
+        Omega.Text = string.Join(" · ", bits);
 
         var xp = root.GetProperty("xp");
         if (xp.ValueKind == JsonValueKind.Object)

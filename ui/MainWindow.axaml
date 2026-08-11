@@ -253,6 +253,9 @@
                            Foreground="{StaticResource BpTextBrush}"/>
                 <TextBlock x:Name="LevelGain" Classes="sub" VerticalAlignment="Center"
                            Foreground="{StaticResource BpOkBrush}"/>
+                <TextBlock x:Name="Omega" Classes="sub" VerticalAlignment="Center"
+                           Foreground="{StaticResource BpAccentBrush}"
+                           ToolTip.Tip="Progression au-delà du cap, telle que publiée par le classement du serveur (recalculé à son redémarrage)"/>
                 <TextBlock x:Name="XpText" Classes="sub" VerticalAlignment="Center"/>
               </StackPanel>
               <ProgressBar x:Name="XpBar" Height="4" MinWidth="0"/>

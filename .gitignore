@@ -23,6 +23,9 @@ data/*.bak
 # sont versionnes, les SVG se retelechargent avec spell_icons.py
 data/spell_svg/
 
+# sorties de panel_probe.py
+panel-*.json
+
 # divers
 *.log
 data/bank.json

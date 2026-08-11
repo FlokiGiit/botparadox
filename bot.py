@@ -159,6 +159,12 @@ def _prestige_from_ge(msg, char_id):
         return total
     return 0
 
+# Relecture du Ladder General (niveaux Omega). Tres rare, pour deux raisons :
+# c'est l'API du serveur, et surtout ce classement n'est recalcule qu'au
+# redemarrage du serveur — le relire souvent ne donnerait pas une valeur plus
+# fraiche, seulement du trafic en plus.
+LADDER_INTERVAL = 1800.0
+
 # Marge avant saturation des pods : en dessous, on arrête de récolter.
 PODS_STOP_RATIO = 0.95
 
@@ -225,8 +231,39 @@ class Brain:
         # que sur réception d'un paquet, or si rien ne bouge sur la carte, rien
         # n'arrive et rien ne le réveille.
         self.ticker = asyncio.create_task(self._tick())
+        self.char_name = ""
+        self.ladder_task = None
         self._map_task = None
         self._map_loading = None   # (map_id, date, key) en cours de chargement
+
+    async def _ladder_loop(self):
+        """Niveaux Omega / rang de prestige, relus de temps en temps.
+
+        Au-dela du niveau 16000 le serveur ne fait plus monter le niveau : la
+        progression continue en niveaux Omega, visibles seulement dans le
+        Ladder General du client. On passe donc par le pont, et rarement — ces
+        appels tapent l'API du serveur (qui annonce elle-meme une limite d'un
+        appel par seconde), et un niveau Omega ne bouge pas toutes les minutes.
+
+        Le pont n'est amorce qu'une fois un panneau ouvert dans le client : tant
+        qu'il ne repond pas, on reessaie plus tard sans rien dire.
+        """
+        first = True
+        while not self.s.server_writer.is_closing():
+            await asyncio.sleep(20 if first else LADDER_INTERVAL)
+            first = False
+            if not self.char_id:
+                continue
+            try:
+                row = await asyncio.to_thread(
+                    dashboard.fetch_ladder_row, self.char_id, self.char_name)
+            except Exception:
+                continue
+            if row and self.stats.set_ladder(row):
+                self.say(f"ladder : niveau {self.stats.level}, "
+                         f"Omega {self.stats.omega}, "
+                         f"prestige {self.stats.prestige_rank}, "
+                         f"rang {self.stats.ladder_rank}")
 
     async def _tick(self):
         while not self.s.server_writer.is_closing():
@@ -383,7 +420,13 @@ class Brain:
 
         elif msg.startswith("ASK|"):
             self.char_id = msg.split("|")[1]
+            fields = msg.split("|")
+            self.char_name = fields[2] if len(fields) > 2 else ""
             self.combat.on_character(self.char_id)
+            # Progression au-dela du cap : elle ne circule pas dans le jeu, on
+            # la lit dans le panneau du client (voir _ladder_loop).
+            if self.ladder_task is None or self.ladder_task.done():
+                self.ladder_task = asyncio.create_task(self._ladder_loop())
             # L'inventaire complet arrive avec la sélection du personnage :
             # on y apprend le modèle de tout ce qu'on possède déjà.
             # L'inventaire est le dernier champ, mais il contient lui-même des
@@ -626,6 +669,8 @@ class Brain:
         self.stats.event("info", "jeu déconnecté")
         if self.ticker is not None and not self.ticker.done():
             self.ticker.cancel()
+        if self.ladder_task is not None and not self.ladder_task.done():
+            self.ladder_task.cancel()
         if self._map_task is not None and not self._map_task.done():
             self._map_task.cancel()
         self._map_task = None
