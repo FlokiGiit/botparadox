@@ -29,10 +29,8 @@ body{font:12.5px/1.35 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
 .tabs b.on{background:linear-gradient(180deg,#3a2422,#2a1c1c);color:var(--accent);
            border-color:var(--accent2)}
 .sum{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:2px}
-/* Les jetons de prestige n'arrivent pas comme un loot ordinaire (ils ne
-   passent que par le bilan de combat) : ils ont leur propre ligne, sur toute
-   la largeur, sous l'XP et les kamas. */
-.sum .wide{grid-column:1/-1}
+/* Six tuiles de meme taille : niveau et Omega se lisent en paire, jetons et
+   kamas aussi. L'Omega avait sa place ici, pas en petite ligne sous le niveau. */
 .stat{background:var(--panel);border-radius:9px;padding:7px 8px 6px;
       border:1px solid var(--edge);position:relative;overflow:hidden}
 .stat::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--edge)}
@@ -44,8 +42,7 @@ body{font:12.5px/1.35 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
 .stat.inv::before{background:var(--kam)}.stat.inv .val{color:var(--kam)}
 .stat.lvl::before{background:var(--lvl)}.stat.lvl .val{color:var(--lvl)}
 .stat.jet::before{background:var(--accent)}.stat.jet .val{color:var(--accent)}
-.stat.jet{display:flex;align-items:baseline;gap:8px}
-.stat.jet .lbl{flex:1}
+.stat.omg::before{background:var(--lvl)}.stat.omg .val{color:var(--lvl)}
 .stat .sub{font-size:10px;color:var(--faint);margin-top:1px}
 h1{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);
    font-weight:700;margin:13px 0 7px;display:flex;align-items:center;gap:7px}
@@ -102,11 +99,13 @@ input::placeholder{color:var(--faint)}
   <div class="sum">
     <div class="stat inv"><div class="lbl">Kamas inventaire</div><div class="val" id="sinv">0</div></div>
     <div class="stat lvl"><div class="lbl">Niveau</div><div class="val" id="slvl">—</div>
-      <div class="sub" id="slvlsub">session +0</div>
-      <div class="sub" id="slvlomega" title="Progression au-dela du cap, telle que publiee par le classement du serveur (recalculee a son redemarrage)"></div></div>
+      <div class="sub" id="slvlsub">session +0</div></div>
     <div class="stat xp"><div class="lbl">XP session</div><div class="val" id="sxp">0</div></div>
     <div class="stat kam"><div class="lbl">Kamas session</div><div class="val" id="skam">0</div></div>
-    <div class="stat jet wide"><div class="lbl">Jetons de prestige</div>
+    <div class="stat omg" title="Progression au-dela du niveau 16000"><div class="lbl">Oméga</div>
+      <div class="val" id="somega">—</div>
+      <div class="sub" id="somegasub"></div></div>
+    <div class="stat jet"><div class="lbl">Jetons de prestige</div>
       <div class="val" id="sjet">0</div>
       <div class="sub" id="sjettot"></div></div>
   </div>
@@ -217,9 +216,10 @@ async function tick(){
   document.getElementById("slvl").textContent=(lvl==null||lvl==="")?"—":String(lvl);
   document.getElementById("slvlsub").textContent="session +"+(d.session_levels||0);
   // Au-dela du cap le niveau ne bouge plus : c'est l'Omega qui progresse.
-  document.getElementById("slvlomega").textContent=
-    (d.omega!=null?("Ω "+d.omega):"")
-    +(d.prestige_rank!=null?((d.omega!=null?" · ":"")+"P"+d.prestige_rank):"");
+  document.getElementById("somega").textContent=
+    d.omega!=null?("Ω "+d.omega):"—";
+  document.getElementById("somegasub").textContent=
+    d.prestige_rank!=null?("prestige "+d.prestige_rank):"";
   document.getElementById("sjet").textContent="+"+compact(d.prestige||0);
   document.getElementById("sjettot").textContent=
     d.total_prestige?("total "+compact(d.total_prestige)):"";

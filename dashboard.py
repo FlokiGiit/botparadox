@@ -126,25 +126,19 @@ def _save_overlay_geo(geo):
         pass
 
 
-def fetch_ladder_row(player_id, name=""):
-    """Ligne du joueur dans le Ladder General du serveur, ou None.
+def fetch_prestige_status():
+    """Etat de prestige du personnage, lu dans le panneau du client.
 
-    Passe le cap : au-dela du niveau 16000 le serveur ne fait plus monter le
-    niveau (le paquet As annonce « palier suivant = xp+1 »), la progression
-    continue en niveaux **Omega**. Cette valeur n'existe que la, dans le
-    panneau du client — d'ou la lecture par le pont.
+    C'est la seule source du **niveau Omega** : passe le cap, le jeu clampe son
+    compteur d'XP (le paquet As annonce « palier suivant = xp+1 ») et ne dit
+    plus rien de la progression. Le panneau, lui, est calcule a la demande —
+    contrairement au classement general, qui n'est refait qu'au redemarrage du
+    serveur et affichait donc une valeur perimee.
 
-    Bloquant (reseau) : a appeler dans un thread, et rarement (le panneau
-    annonce lui-meme rateLimitMs=1000, et c'est l'API du serveur).
+    Bloquant (reseau) : a appeler dans un thread.
     """
-    res = _post_bridge({"panelId": "ladder-general", "action": "refresh",
-                        "params": {"board": "player-xp-total",
-                                   "search": name or "", "page": 1}})
-    rows = ((res or {}).get("data") or {}).get("rows") or []
-    for row in rows:
-        if str(row.get("playerId")) == str(player_id):
-            return row
-    return None
+    res = _post_bridge({"panelId": "prestige"})
+    return ((res or {}).get("data") or {}).get("status") or None
 
 
 _HARVEST_JOBS = None
@@ -346,8 +340,8 @@ class Stats:
         # dans le Ladder General du client (le flux de jeu ne les donne pas).
         self.omega = None
         self.prestige_rank = None
-        self.ladder_rank = None
-        self.xp_total = None
+        self.xp_total = None      # XP reelle, cap compris
+        self.xp_over_cap = None   # XP engrangee au-dela du cap (« rab »)
         self.xp = None           # (actuel, plancher du niveau, palier suivant)
         self.jobs = {}           # numéro de métier -> (niveau, plancher, xp, suivant)
         # Avant _restore : sinon la restauration des cibles serait ecrasee.
@@ -469,9 +463,9 @@ class Stats:
         except (AttributeError, TypeError, ValueError):
             return 0
 
-    def set_ladder(self, row):
-        """Applique une ligne du Ladder General (voir fetch_ladder_row)."""
-        if not row:
+    def set_prestige(self, status):
+        """Applique l'etat renvoye par le panneau Prestige du client."""
+        if not status:
             return False
         def _int(v):
             try:
@@ -479,18 +473,16 @@ class Stats:
             except (TypeError, ValueError):
                 return None
         before = self.omega
-        if str(row.get("secondaryLabel", "")).lower() == "omega":
-            self.omega = _int(row.get("secondaryValue"))
-        self.ladder_rank = _int(row.get("rank"))
-        self.xp_total = _int(row.get("score"))
-        detail = str(row.get("detailText") or "")
-        if detail.lower().startswith("prestige"):
-            self.prestige_rank = _int(detail.split()[-1])
-        if row.get("level"):
-            self.level = _int(row.get("level")) or self.level
+        self.omega = _int(status.get("omegaLevel"))
+        self.prestige_rank = _int(status.get("currentPrestige"))
+        self.xp_total = _int(status.get("xpCurrent"))
+        self.xp_over_cap = _int(status.get("rabXp"))
+        lvl = _int(status.get("globalLevel"))
+        if lvl:
+            self.level = lvl
         if self.omega is not None and before is not None and self.omega > before:
             self.event("xp", f"niveau Omega {self.omega} !")
-        return True
+        return self.omega is not None
 
     def add_prestige(self, n):
         """Comptabilise n jetons de prestige gagnes (depuis le bilan de combat)."""
@@ -759,8 +751,8 @@ class Stats:
             "total_prestige": self.prestige_held(),
             "omega": self.omega,
             "prestige_rank": self.prestige_rank,
-            "ladder_rank": self.ladder_rank,
             "xp_total": self.xp_total,
+            "xp_over_cap": self.xp_over_cap,
             "xp": self._xp_progress(),
             "jobs": self._job_rows(gd),
             "events": [self._render_event(e, gd) for e in self.events],
