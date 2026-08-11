@@ -430,6 +430,18 @@ class Stats:
         self.events.appendleft({"t": time.time(), "kind": kind,
                                 "text": text, **extra})
 
+    # Modele du Jeton de prestige. Le total affiche, c'est ce qu'on POSSEDE
+    # (lu dans le sac), pas un cumul maison : ce dernier repartait a zero a
+    # la moindre remise a plat et ne tenait pas compte des jetons depenses.
+    PRESTIGE_MODEL = "925405"
+
+    def prestige_held(self):
+        """Jetons de prestige reellement en inventaire."""
+        try:
+            return int(self.bag.get(self.PRESTIGE_MODEL, 0))
+        except (AttributeError, TypeError, ValueError):
+            return 0
+
     def add_prestige(self, n):
         """Comptabilise n jetons de prestige gagnes (depuis le bilan de combat)."""
         if n <= 0:
@@ -694,7 +706,7 @@ class Stats:
             "session_xp": self._xp_gained(),
             "session_kamas": self._kamas_gained(),
             "prestige": self.prestige,
-            "total_prestige": self.total.get("prestige", 0) + self.prestige,
+            "total_prestige": self.prestige_held(),
             "xp": self._xp_progress(),
             "jobs": self._job_rows(gd),
             "events": [self._render_event(e, gd) for e in self.events],

@@ -1,0 +1,385 @@
+{
+  "timestamp": 1786486417375,
+  "requestId": "d76ae8f3-30ae-4f53-8172-447937097abb",
+  "success": true,
+  "data": {
+    "serverTime": 1786486417375,
+    "windowStartAt": 1786413600000,
+    "nextResetAt": 1786500000000,
+    "resetHour": 4,
+    "resetTimeZone": "Europe/Paris",
+    "rateLimitMs": 1000,
+    "query": {
+      "board": "player-xp-total",
+      "page": 1,
+      "pageSize": 15,
+      "search": "",
+      "classId": null
+    },
+    "boardOptions": [
+      {
+        "value": "player-xp-total",
+        "label": "XP total"
+      },
+      {
+        "value": "player-xp-daily",
+        "label": "XP 24h"
+      },
+      {
+        "value": "guild-xp-total",
+        "label": "Guildes"
+      },
+      {
+        "value": "mod-dungeon-completions",
+        "label": "Donjons"
+      },
+      {
+        "value": "votes",
+        "label": "Votes"
+      }
+    ],
+    "classOptions": [
+      {
+        "value": "",
+        "label": "Toutes les classes"
+      },
+      {
+        "value": "1",
+        "label": "Feca"
+      },
+      {
+        "value": "2",
+        "label": "Osamodas"
+      },
+      {
+        "value": "3",
+        "label": "Enutrof"
+      },
+      {
+        "value": "4",
+        "label": "Sram"
+      },
+      {
+        "value": "5",
+        "label": "Xelor"
+      },
+      {
+        "value": "6",
+        "label": "Ecaflip"
+      },
+      {
+        "value": "7",
+        "label": "Eniripsa"
+      },
+      {
+        "value": "8",
+        "label": "Iop"
+      },
+      {
+        "value": "9",
+        "label": "Cra"
+      },
+      {
+        "value": "10",
+        "label": "Sadida"
+      },
+      {
+        "value": "11",
+        "label": "Sacrieur"
+      },
+      {
+        "value": "12",
+        "label": "Pandawa"
+      }
+    ],
+    "boardLabel": "Ladder XP total",
+    "boardDescription": "Classement global des personnages par XP totale.",
+    "emptyMessage": "Aucun personnage classé pour le moment.",
+    "scoreColumnLabel": "XP total",
+    "secondaryColumnLabel": "Omega",
+    "levelColumnLabel": "Niveau",
+    "showClassColumn": true,
+    "showLevelColumn": true,
+    "showServerColumn": false,
+    "supportsClassFilter": true,
+    "page": {
+      "page": 1,
+      "pageSize": 15,
+      "totalItems": 3199,
+      "totalPages": 214
+    },
+    "rows": [
+      {
+        "rank": 1,
+        "playerId": 17,
+        "guildId": 0,
+        "accountId": 88,
+        "sex": 0,
+        "emblem": "",
+        "name": "Noisekick",
+        "detailText": "Prestige 15",
+        "classId": 11,
+        "className": "Sacrieur",
+        "level": 16000,
+        "serverName": "",
+        "score": "1422389517355687",
+        "scoreLabel": "1 422 389 517 355 687",
+        "secondaryLabel": "Omega",
+        "secondaryValue": "514"
+      },
+      {
+        "rank": 2,
+        "playerId": 1574,
+        "guildId": 0,
+        "accountId": 1000927,
+        "sex": 1,
+        "emblem": "",
+        "name": "Zamatocanon",
+        "detailText": "Prestige 15",
+        "classId": 3,
+        "className": "Enutrof",
+        "level": 16000,
+        "serverName": "",
+        "score": "1296292044390489",
+        "scoreLabel": "1 296 292 044 390 489",
+        "secondaryLabel": "Omega",
+        "secondaryValue": "482"
+      },
+      {
+        "rank": 3,
+        "playerId": 66,
+        "guildId": 0,
+        "accountId": 188,
+        "sex": 0,
+        "emblem": "",
+        "name": "Bel-branch",
+        "detailText": "Prestige 15",
+        "classId": 4,
+        "className": "Sram",
+        "level": 16000,
+        "serverName": "",
+        "score": "946192045452936",
+        "scoreLabel": "946 192 045 452 936",
+        "secondaryLabel": "Omega",
+        "secondaryValue": "381"
+      },
+      {
+        "rank": 4,
+        "playerId": 2370,
+        "guildId": 0,
+        "accountId": 1001115,
+        "sex": 1,
+        "emblem": "",
+        "name": "Jinka",
+        "detailText": "Prestige 15",
+        "classId": 4,
+        "className": "Sram",
+        "level": 16000,
+        "serverName": "",
+        "score": "638711993039774",
+        "scoreLabel": "638 711 993 039 774",
+        "secondaryLabel": "Omega",
+        "secondaryValue": "262"
+      },
+      {
+        "rank": 5,
+        "playerId": 2854,
+        "guildId": 0,
+        "accountId": 1001650,
+        "sex": 0,
+        "emblem": "",
+        "name": "Floki",
+        "detailText": "Prestige 15",
+        "classId": 9,
+        "className": "Cra",
+        "level": 16000,
+        "serverName": "",
+        "score": "587782489138833",
+        "scoreLabel": "587 782 489 138 833",
+        "secondaryLabel": "Omega",
+        "secondaryValue": "237"
+      },
+      {
+        "rank": 6,
+        "playerId": 223,
+        "guildId": 0,
+        "accountId": 1000248,
+        "sex": 0,
+        "emblem": "",
+        "name": "Kaolan",
+        "detailText": "Prestige 15",
+        "classId": 4,
+        "className": "Sram",
+        "level": 16000,
+        "serverName": "",
+        "score": "540756868469214",
+        "scoreLabel": "540 756 868 469 214",
+        "secondaryLabel": "Omega",
+        "secondaryValue": "211"
+      },
+      {
+        "rank": 7,
+        "playerId": 2070,
+        "guildId": 0,
+        "accountId": 1001211,
+        "sex": 0,
+        "emblem": "",
+        "name": "Rasta",
+        "detailText": "Prestige 15",
+        "classId": 4,
+        "className": "Sram",
+        "level": 16000,
+        "serverName": "",
+        "score": "498822640416671",
+        "scoreLabel": "498 822 640 416 671",
+        "secondaryLabel": "Omega",
+        "secondaryValue": "184"
+      },
+      {
+        "rank": 8,
+        "playerId": 81,
+        "guildId": 0,
+        "accountId": 1000319,
+        "sex": 0,
+        "emblem": "",
+        "name": "Puruto",
+        "detailText": "Prestige 15",
+        "classId": 11,
+        "className": "Sacrieur",
+        "level": 16000,
+        "serverName": "",
+        "score": "473817581405457",
+        "scoreLabel": "473 817 581 405 457",
+        "secondaryLabel": "Omega",
+        "secondaryValue": "167"
+      },
+      {
+        "rank": 9,
+        "playerId": 158,
+        "guildId": 0,
+        "accountId": 1000237,
+        "sex": 0,
+        "emblem": "",
+        "name": "Duck",
+        "detailText": "Prestige 15",
+        "classId": 4,
+        "className": "Sram",
+        "level": 16000,
+        "serverName": "",
+        "score": "437613079737164",
+        "scoreLabel": "437 613 079 737 164",
+        "secondaryLabel": "Omega",
+        "secondaryValue": "137"
+      },
+      {
+        "rank": 10,
+        "playerId": 1903,
+        "guildId": 0,
+        "accountId": 1001132,
+        "sex": 0,
+        "emblem": "",
+        "name": "Ombra",
+        "detailText": "Prestige 15",
+        "classId": 4,
+        "className": "Sram",
+        "level": 16000,
+        "serverName": "",
+        "score": "435604788389299",
+        "scoreLabel": "435 604 788 389 299",
+        "secondaryLabel": "Omega",
+        "secondaryValue": "135"
+      },
+      {
+        "rank": 11,
+        "playerId": 486,
+        "guildId": 0,
+        "accountId": 326,
+        "sex": 0,
+        "emblem": "",
+        "name": "Blondin",
+        "detailText": "Prestige 15",
+        "classId": 8,
+        "className": "Iop",
+        "level": 16000,
+        "serverName": "",
+        "score": "427511999896385",
+        "scoreLabel": "427 511 999 896 385",
+        "secondaryLabel": "Omega",
+        "secondaryValue": "127"
+      },
+      {
+        "rank": 12,
+        "playerId": 1897,
+        "guildId": 0,
+        "accountId": 1001128,
+        "sex": 0,
+        "emblem": "",
+        "name": "Chow-pala",
+        "detailText": "Prestige 15",
+        "classId": 4,
+        "className": "Sram",
+        "level": 16000,
+        "serverName": "",
+        "score": "427182769930377",
+        "scoreLabel": "427 182 769 930 377",
+        "secondaryLabel": "Omega",
+        "secondaryValue": "127"
+      },
+      {
+        "rank": 13,
+        "playerId": 3770,
+        "guildId": 0,
+        "accountId": 1002166,
+        "sex": 0,
+        "emblem": "",
+        "name": "Wezio",
+        "detailText": "Prestige 15",
+        "classId": 9,
+        "className": "Cra",
+        "level": 16000,
+        "serverName": "",
+        "score": "420811406565118",
+        "scoreLabel": "420 811 406 565 118",
+        "secondaryLabel": "Omega",
+        "secondaryValue": "121"
+      },
+      {
+        "rank": 14,
+        "playerId": 618,
+        "guildId": 0,
+        "accountId": 1000445,
+        "sex": 0,
+        "emblem": "",
+        "name": "Noflex",
+        "detailText": "Prestige 15",
+        "classId": 4,
+        "className": "Sram",
+        "level": 16000,
+        "serverName": "",
+        "score": "414855387242790",
+        "scoreLabel": "414 855 387 242 790",
+        "secondaryLabel": "Omega",
+        "secondaryValue": "114"
+      },
+      {
+        "rank": 15,
+        "playerId": 2825,
+        "guildId": 0,
+        "accountId": 1000487,
+        "sex": 0,
+        "emblem": "",
+        "name": "Wii",
+        "detailText": "Prestige 15",
+        "classId": 4,
+        "className": "Sram",
+        "level": 16000,
+        "serverName": "",
+        "score": "402078030270004",
+        "scoreLabel": "402 078 030 270 004",
+        "secondaryLabel": "Omega",
+        "secondaryValue": "100"
+      }
+    ]
+  },
+  "status": 200
+}

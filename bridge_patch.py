@@ -26,7 +26,7 @@ from client_config import LOGIN_BRIDGE, PANEL_HANDLERS
 _HANDOFF_JS = HANDOFF_FILE.replace("\\", "\\\\")   # echappe pour une chaine JS
 
 REDIRECT_VERSION = 2   # v2 : handoff.json a un chemin fixe partage (apppaths)
-BRIDGE_VERSION = 1
+BRIDGE_VERSION = 2
 
 
 # ── login-tcp-bridge.js : redirection vers le proxy ─────────────────────────
@@ -91,10 +91,15 @@ const bridgeServer = httpBridge.createServer((req, res) => {
     if (req.method !== 'POST') return reply(405, { error: 'POST attendu' });
     if (!scopedApi) return reply(503, { error: 'NON_AMORCE' });
     let p; try { p = JSON.parse(body || '{}'); } catch (e) { return reply(400, { error: 'JSON invalide' }); }
-    if (!p.panelId || !p.action) return reply(400, { error: 'panelId et action requis' });
+    if (!p.panelId) return reply(400, { error: 'panelId requis' });
     try {
-      const result = await scopedApi.post('/api/panels/' + encodeURIComponent(p.panelId) + '/action', { action: p.action, params: p.params || {} });
-      logPanel('BOT', { panelId: p.panelId, action: p.action, params: p.params, result });
+      // Sans action : simple LECTURE du panneau (c'est un GET cote serveur,
+      // exactement ce que fait le client pour peupler ses panneaux). Avec
+      // action : on execute, comme avant.
+      const result = p.action
+        ? await scopedApi.post('/api/panels/' + encodeURIComponent(p.panelId) + '/action', { action: p.action, params: p.params || {} })
+        : await scopedApi.get('/api/panels/' + encodeURIComponent(p.panelId));
+      logPanel('BOT', { panelId: p.panelId, action: p.action || '(lecture)', params: p.params, result });
       reply(200, result);
     } catch (e) { reply(500, { error: String(e && e.message) }); }
   });
