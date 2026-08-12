@@ -148,12 +148,28 @@ def fill_publish():
     print("   appli decompressee :", app_dir)
 
 
+def _kill_locking_instances():
+    """Coupe les seules instances lancees depuis les dossiers de build."""
+    dirs = [d for d in (PUBLISH, BUILD) if d]
+    cond = " -or ".join(
+        f"$_.ExecutablePath -like '{d}*'" for d in dirs)
+    script = (
+        "Get-CimInstance Win32_Process -Filter \"Name='botcore.exe' or "
+        "Name='BotParadox.exe'\" | Where-Object { " + cond + " } | "
+        "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }")
+    r = subprocess.run(["powershell", "-NoProfile", "-Command", script],
+                       capture_output=True, text=True)
+    if r.returncode not in (0, 1):
+        print("   (impossible de verifier les instances en cours :",
+              (r.stderr or "").strip()[:120], ")")
+
+
 def main():
-    # Un botcore/BotParadox lance depuis Publish\ verrouille des fichiers et
-    # ferait echouer le nettoyage : on coupe toute instance avant de builder.
-    for exe in ("botcore.exe", "BotParadox.exe"):
-        subprocess.run(["taskkill", "/IM", exe, "/F"],
-                       capture_output=True)
+    # Un botcore/BotParadox lance DEPUIS Publish\ ou build_out\ verrouille les
+    # fichiers qu'on s'apprete a effacer. On ne coupe QUE ceux-la : un
+    # `taskkill /IM` global fermait aussi l'application installee que le
+    # developpeur est en train d'utiliser, jeu connecte compris.
+    _kill_locking_instances()
     if os.path.exists(BUILD):
         shutil.rmtree(BUILD, ignore_errors=True)
     if os.path.exists(PUBLISH):
