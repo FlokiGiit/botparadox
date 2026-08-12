@@ -905,6 +905,11 @@ class CombatAI:
         came, dist = self._reachable(me.cell, me.pm, blocked)
         occupied = {f.cell for f in self.fighters.values() if f.hp > 0}
         spells = [sp for sp in self._plan() if self._castable(sp)]
+        # Le bot tire d'abord et ne se deplace qu'une fois ses PA vides : a cet
+        # instant plus aucun sort n'est « lancable », et juger une case sur les
+        # sorts du tour n'a plus de sens. Ce deplacement-la prepare le tour
+        # SUIVANT, on le juge donc avec les sorts que le personnage possede.
+        horizon = spells or self._plan()
 
         best = None
         for cell, steps in dist.items():
@@ -957,8 +962,8 @@ class CombatAI:
                 # Se rapprocher, c'est aller là où on pourra TIRER : la portée
                 # du sort prioritaire, pas le corps à corps. Coller un monstre
                 # avec un arc n'avance à rien et se prend les ripostes.
-                goal = ((spells[0].range_min, spells[0].range_max)
-                        if spells else (1, 1))
+                goal = ((horizon[0].range_min, horizon[0].range_max)
+                        if horizon else (1, 1))
 
             def gap(d):
                 """Ce qu'il manque (ou ce qu'il y a en trop) pour être à bonne
@@ -967,8 +972,9 @@ class CombatAI:
                     return goal[0] - d
                 return max(0, d - goal[1])
 
-            # Sort de reference pour juger une case : celui qu'on lancerait.
-            main = spells[0] if spells else None
+            # Sort de reference pour juger une case : celui qu'on lancera,
+            # ce tour-ci ou au suivant.
+            main = horizon[0] if horizon else None
             scored = []
             for c, steps in dist.items():
                 if c == me.cell:
@@ -995,7 +1001,20 @@ class CombatAI:
                 scored.append((-reach, 0 if seen else 1, gap(d), steps, c))
             if not scored:
                 return None
-            best = (None, min(scored)[4])
+            # Rester sur place est une option : on ne bouge que si la case
+            # visee fait mieux. Sans ce test le bot avancait d'un pas puis
+            # reculait d'un pas (releve dans le journal : 253 -> 252 -> 253),
+            # en brulant ses PM pour revenir au meme endroit.
+            here_seen = losrange.check_los(self.gmap, me.cell, target.cell,
+                                           occupied - {me.cell, target.cell})
+            here = (-self._targets_from(me.cell, self._hittable_enemies(me.cell),
+                                        occupied, main),
+                    0 if here_seen else 1,
+                    gap(losrange.distance(me.cell, target.cell)))
+            pick = min(scored)
+            if pick[:3] >= here:
+                return None
+            best = (None, pick[4])
         return best[1], self._path(came, best[1])
 
     @staticmethod
@@ -1197,7 +1216,9 @@ class CombatAI:
         from gamemap import compress_path
         plan = self._approach()
         if plan is None:
-            self.say("rien à portée et nulle part où aller -> je passe")
+            # Soit il n'y a nulle part ou aller, soit aucune case ne fait mieux
+            # que celle-ci : dans les deux cas, bouger serait du gachis de PM.
+            self.say("rien à portée et aucun déplacement utile -> je passe")
             return False
         cell, path = plan
         encoded = compress_path(path)
