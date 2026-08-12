@@ -208,6 +208,34 @@ class Session:
         except asyncio.CancelledError:
             pass
 
+    def drop_pending(self, prefixes):
+        """Jette les paquets encore en file qui commencent par `prefixes`.
+
+        La file lisse la sortie du bot (MIN_GAP), donc un paquet decide pendant
+        un combat peut partir APRES sa fin — un GR1 ou un GA300 hors combat est
+        un paquet qu'aucun client ne produit, et le serveur les compte. Quand le
+        combat se termine, on purge ce qui n'a plus de sens.
+
+        Renvoie le nombre de paquets jetes.
+        """
+        import asyncio as _asyncio
+        kept, dropped = [], 0
+        while True:
+            try:
+                payload = self._queue.get_nowait()
+            except (_asyncio.QueueEmpty, Exception):
+                break
+            if payload.startswith(prefixes):
+                dropped += 1
+            else:
+                kept.append(payload)
+        for payload in kept:
+            try:
+                self._queue.put_nowait(payload)
+            except Exception:
+                break
+        return dropped
+
     def suppress_client_gkk(self, seconds):
         """Bloque les GKK envoyés par le client pendant `seconds`. Utilisé
         autour d'un déplacement de combat injecté : sinon le client confirme sa

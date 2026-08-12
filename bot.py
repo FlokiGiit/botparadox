@@ -159,6 +159,17 @@ def _prestige_from_ge(msg, char_id):
         return total
     return 0
 
+# Groupes poses sur une case de changement de carte : le serveur offre
+# `.movemobs` pour les deplacer. On la tape dans le chat comme le ferait le
+# joueur (BM<canal>|<texte>, canal * = general), mais seulement quand plus
+# rien n'est attaquable, et pas plus d'une fois par MOVEMOBS_COOLDOWN.
+# MOVEMOBS_MAX_TRIES : si apres deux demandes rien n'a bouge, c'est que la
+# commande ne fait pas ce qu'on croit — on arrete plutot que d'ecrire dans le
+# chat toutes les 30 secondes.
+MOVEMOBS_CHAT = "BM*|.movemobs"
+MOVEMOBS_COOLDOWN = 30.0
+MOVEMOBS_MAX_TRIES = 2
+
 # Relecture de l'etat de prestige (niveau Omega). Le panneau est calcule a la
 # demande pour le seul personnage : une minute suffit a suivre la progression
 # sans marteler l'API.
@@ -189,6 +200,11 @@ class Brain:
         # ca le message repartait a chaque passage dans la boucle.
         self.edge_said = set()
         self._edges_cache = None
+        # Demandes `.movemobs` : instant du dernier envoi, essais infructueux,
+        # et arret definitif si la commande n'a visiblement aucun effet.
+        self._movemobs_at = 0.0
+        self._movemobs_tries = 0
+        self._movemobs_off = False
         # Case d'arrivee du dernier deplacement qu'on a envoye, et carte d'ou
         # il partait : si un changement de carte suit, cette case EST une
         # sortie (voir map_exits).
@@ -331,6 +347,9 @@ class Brain:
             self.engage_failed.clear()
             self.combat_manual = False
             self.client_in_fight = False
+            # Un combat s'ouvre : la carte s'est debloquee, `.movemobs` a donc
+            # servi (ou n'etait pas necessaire). On repart d'un compteur neuf.
+            self._movemobs_tries = 0
             self.combat.reset(active=True)
             # Mode Kralamoure : on arme le script de combat fixe ; sinon IA
             # générique. On (re)fixe à chaque combat pour suivre le mode courant.
@@ -352,6 +371,14 @@ class Brain:
         elif msg.startswith("GE"):
             self.in_fight = False
             self.combat.reset()
+            # La file d'emission lisse la sortie du bot : un sort ou un « pret »
+            # decide pendant le combat pouvait partir juste APRES sa fin. Le
+            # serveur compte ces paquets impossibles (226 GR1 et 34 GA300 hors
+            # combat releves sur huit sessions) et finit par couper la
+            # connexion. On purge donc ce qui n'a plus de sens.
+            dropped = self.s.drop_pending(("GA300", "GR1", "Gt", "GA001"))
+            if dropped:
+                self.say(f"{dropped} paquet(s) de combat annule(s) — combat fini")
             self.stats.fight_end()
             # Jetons de prestige gagnés ce combat (loot présent seulement ici).
             self.stats.add_prestige(_prestige_from_ge(msg, self.char_id))
@@ -832,6 +859,10 @@ class Brain:
                          f"injoignables : marcher dessus change de carte au "
                          f"lieu d'attaquer, déplace-les (.movemobs)")
         if not targets:
+            # Rien d'attaquable ET des groupes coinces sur un soleil : on
+            # demande au serveur de les deplacer plutot que d'attendre un repop.
+            if on_edge:
+                self._ask_movemobs(on_edge)
             if self.last_blocked != "vide-farm":
                 extra = f" — je cible {only_cell}" if only_cell is not None else ""
                 self.say(f"aucun groupe accessible ({len(self.groups)} sur la carte)"
@@ -882,6 +913,31 @@ class Brain:
         self.say(f"attaque du groupe en {cell} ({steps} pas)")
         self.last_step = (self.map_id, path[-1])
         self.s.to_server("GA001" + compress_path(path))
+
+    def _ask_movemobs(self, cells):
+        """Tape `.movemobs` dans le chat pour degager des groupes injoignables.
+
+        Le serveur documente la commande (« .movemobs - Deplacer un groupe de
+        monstre. »). On l'envoie comme le client enverrait un message sur le
+        canal general. Deux garde-fous : jamais plus d'une fois par
+        MOVEMOBS_COOLDOWN, et on abandonne apres MOVEMOBS_MAX_TRIES essais sans
+        resultat — inutile d'ecrire en boucle dans le chat si ca ne marche pas.
+        """
+        if self._movemobs_off:
+            return
+        now = time.monotonic()
+        if now - self._movemobs_at < MOVEMOBS_COOLDOWN:
+            return
+        self._movemobs_at = now
+        self._movemobs_tries += 1
+        if self._movemobs_tries > MOVEMOBS_MAX_TRIES:
+            self._movemobs_off = True
+            self.say(".movemobs est resté sans effet — j'arrête d'essayer "
+                     "(relance le bot pour réessayer)")
+            return
+        self.say(f"groupes injoignables ({', '.join(str(c) for c in cells[:4])})"
+                 f" -> .movemobs (essai {self._movemobs_tries})")
+        self.s.to_server(MOVEMOBS_CHAT)
 
     def _edge_cells(self):
         """Cases de bord de la carte courante, mémorisées : la liste ne dépend
