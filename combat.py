@@ -861,6 +861,31 @@ class CombatAI:
             delay = DELAY_BETWEEN_CASTS
         return max(0.1, min(2.0, delay))
 
+    def _targets_from(self, cell, enemies, occupied, spell):
+        """Combien d'ennemis seraient vraiment visables depuis `cell` avec ce
+        sort : portee ET ligne de vue.
+
+        Sert a choisir OU se placer. Se contenter de la distance au monstre le
+        plus proche amenait le bot au bord du groupe, d'ou il ne voyait qu'une
+        cible ; il vidait ses PA dessus et repartait. Compter les cibles le
+        pousse a se mettre la ou il y a du monde a portee.
+
+        Volontairement bon marche : une boucle sur les ennemis (une poignee),
+        pas un balayage de la carte comme _landing_cells.
+        """
+        if spell is None:
+            return 0
+        n = 0
+        for e in enemies:
+            d = losrange.distance(cell, e.cell)
+            if d < spell.range_min or d > spell.range_max:
+                continue
+            if spell.los and not losrange.check_los(
+                    self.gmap, cell, e.cell, occupied - {cell, e.cell}):
+                continue
+            n += 1
+        return n
+
     def _approach(self):
         """Case où se déplacer pour pouvoir frapper, et le chemin pour y aller.
 
@@ -900,7 +925,11 @@ class CombatAI:
             for rank, spell in enumerate(spells):
                 if self._aim(spell, hittable, cell, occ) is None:
                     continue
-                key = (rank, steps)
+                # A sort egal, on prefere la case d'ou l'on voit le plus de
+                # monstres — c'est ce qui manquait : le bot se contentait de la
+                # case la plus proche, souvent en bordure du groupe.
+                key = (rank, -self._targets_from(cell, hittable, occ, spell),
+                       steps)
                 if best is None or key < best[0]:
                     best = (key, cell)
                 break
@@ -938,6 +967,8 @@ class CombatAI:
                     return goal[0] - d
                 return max(0, d - goal[1])
 
+            # Sort de reference pour juger une case : celui qu'on lancerait.
+            main = spells[0] if spells else None
             scored = []
             for c, steps in dist.items():
                 if c == me.cell:
@@ -954,10 +985,17 @@ class CombatAI:
                 # tour, incapable de tirer sur une cible pourtant à portée.
                 seen = losrange.check_los(self.gmap, c, target.cell,
                                           (occupied - {c, target.cell}))
-                scored.append((0 if seen else 1, gap(d), steps, c))
+                # 1. le nombre de monstres qu'on pourra viser depuis la case,
+                # 2. a defaut la ligne de vue sur le plus proche, 3. la bonne
+                # distance, 4. le moins de PM possible. Quand aucun sort n'est
+                # disponible le premier critere vaut 0 partout : on retombe
+                # exactement sur le comportement precedent.
+                reach = self._targets_from(c, self._hittable_enemies(c),
+                                           (occupied - {me.cell}) | {c}, main)
+                scored.append((-reach, 0 if seen else 1, gap(d), steps, c))
             if not scored:
                 return None
-            best = (None, min(scored)[3])
+            best = (None, min(scored)[4])
         return best[1], self._path(came, best[1])
 
     @staticmethod
