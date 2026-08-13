@@ -18,7 +18,7 @@ import re
 from client_config import CLIENT_HTML
 
 ORIGIN = "http://127.0.0.1:8765"
-VERSION = 17   # a incrementer si le bloc ci-dessous change
+VERSION = 18   # a incrementer si le bloc ci-dessous change
 
 # L'overlay est un conteneur deplacable (barre du haut) et redimensionnable
 # (poignee en bas a gauche), avec verrou, repli et opacite.
@@ -272,14 +272,20 @@ want=def();paint();init(8);
 })();</script>
 <script>(function(){
   // Panneau Rarete : "Tenter" relance la rarete de l'item (coute 1 Energie
-  // rare) et ECRASE le jet precedent. On ajoute "Auto : roll jusqu'a Rx" qui
-  // relance UN roll a la fois, lit la rarete apres chaque, et S'ARRETE des
-  // qu'on atteint la cible (R9/R10) ou que la ressource est epuisee -> plus
-  // jamais de bon jet ecrase. On pilote LEUR UI (leur bouton, leurs options),
+  // rare) et ECRASE le jet precedent. On ajoute deux facons d'enchainer :
+  //   - "roll jusqu'a Rx" : s'arrete des que la cible est atteinte, donc
+  //     aucun bon jet n'est ecrase ;
+  //   - "Tenter xN" : le nombre exact de tentatives, saisi librement (leur
+  //     champ ne propose que des paliers).
+  // Dans les deux cas on relance UN roll a la fois et on lit la rarete entre
+  // chaque, on ne fait donc jamais un jet a l'aveugle. On pilote LEUR UI (leur bouton, leurs options),
   // on ne recree rien : c'est exactement ce qu'un joueur ferait a la main.
   // SECURITE : si la rarete est illisible, on stoppe (jamais de roll a
   // l'aveugle). Rien n'est force cote serveur : les probas restent les leurs.
   var TAG='botRareRoll', pending=false, running=false, count=0;
+  // cible = s'arreter des R>=cible (0 = pas de cible) ;
+  // limite = nombre de tentatives (0 = illimite).
+  var mode={cible:0, limite:0};
   function q(s){return document.querySelector(s);}
   function rollBtn(){return q('.rp__roll-btn');}
   function rarity(){
@@ -335,7 +341,9 @@ want=def();paint();init(8);
       +'background:#e05561;color:#fff;font-weight:700;font:inherit;display:none';
     var stat=document.createElement('span');
     stat.style.cssText='font:600 12px system-ui,sans-serif;color:#bda87e';
-    function finish(msg){running=false;go.style.display='';stop.style.display='none';
+    function finish(msg){running=false;go.style.display='';
+      if(typeof goN!=='undefined'&&goN) goN.style.display='';
+      stop.style.display='none';
       if(stat.isConnected)stat.textContent=msg;}
     function loop(){
       if(!running) return;
@@ -358,16 +366,41 @@ want=def();paint();init(8);
         setTimeout(loop,500);
       },160);
     }
-    go.addEventListener('click',function(){
-      if(running) return;
-      running=true;count=0;go.style.display='none';stop.style.display='';
+    // Nombre de tentatives, saisi librement.
+    var num=document.createElement('input');
+    num.type='number'; num.min='1'; num.value='50';
+    num.title='Nombre de tentatives';
+    num.style.cssText='width:70px;padding:5px;border-radius:6px;border:1px solid '
+      +'#6a5a3a;background:rgba(0,0,0,.25);color:#f0e6d2;font:inherit';
+    var goN=document.createElement('button'); goN.type='button';
+    goN.textContent='\u25b6 Tenter \u00d7N';
+    goN.title='Enchaine exactement ce nombre de tentatives. Chaque jet ecrase '
+      +'le precedent : pour garder un bon resultat, prefere le mode par cible.';
+    goN.style.cssText='padding:6px 12px;border:0;border-radius:6px;cursor:pointer;'
+      +'background:#c4675f;color:#150f0f;font-weight:800;font:inherit';
+    function start(){
+      running=true;count=0;
+      go.style.display='none';goN.style.display='none';stop.style.display='';
       var ni=q('.rp__roll-count-input'); if(ni) setNum(ni,1);   // 1 roll a la fois
       setCheck('sans animation',true);      // resultat direct = plus rapide
       setCheck('toujours confirmer',true);  // pas de popup a chaque roll
       setTimeout(loop,220);
+    }
+    go.addEventListener('click',function(){
+      if(running) return;
+      mode={cible:parseInt(sel.value,10)||9, limite:0};
+      start();
+    });
+    goN.addEventListener('click',function(){
+      if(running) return;
+      var n=parseInt(num.value,10)||0;
+      if(n<1){ stat.textContent='nombre invalide'; return; }
+      mode={cible:0, limite:n};
+      start();
     });
     stop.addEventListener('click',function(){ finish('arrete ('+count+' rolls)'); });
     wrap.appendChild(lbl);wrap.appendChild(sel);wrap.appendChild(go);
+    wrap.appendChild(num);wrap.appendChild(goN);
     wrap.appendChild(stop);wrap.appendChild(stat);
     host.appendChild(wrap);
   }
