@@ -18,7 +18,7 @@ import re
 from client_config import CLIENT_HTML
 
 ORIGIN = "http://127.0.0.1:8765"
-VERSION = 18   # a incrementer si le bloc ci-dessous change
+VERSION = 19   # a incrementer si le bloc ci-dessous change
 
 # L'overlay est un conteneur deplacable (barre du haut) et redimensionnable
 # (poignee en bas a gauche), avec verrou, repli et opacite.
@@ -275,10 +275,11 @@ want=def();paint();init(8);
   // rare) et ECRASE le jet precedent. On ajoute deux facons d'enchainer :
   //   - "roll jusqu'a Rx" : s'arrete des que la cible est atteinte, donc
   //     aucun bon jet n'est ecrase ;
-  //   - "Tenter xN" : le nombre exact de tentatives, saisi librement (leur
-  //     champ ne propose que des paliers).
-  // Dans les deux cas on relance UN roll a la fois et on lit la rarete entre
-  // chaque, on ne fait donc jamais un jet a l'aveugle. On pilote LEUR UI (leur bouton, leurs options),
+  //   - "Tenter xN" : le nombre exact de tentatives, saisi librement.
+  // Le mode par cible relance UN roll a la fois (c'est ce qui permet de
+  // s'arreter pile). Le mode xN, lui, passe par LEUR champ « Nombre de rolls »
+  // et enchaine par LOTS de 100 (leur maximum : max={Math.min(100, ressource)}),
+  // sinon 50 tentatives prenaient 50 allers-retours. On pilote LEUR UI (leur bouton, leurs options),
   // on ne recree rien : c'est exactement ce qu'un joueur ferait a la main.
   // SECURITE : si la rarete est illisible, on stoppe (jamais de roll a
   // l'aveugle). Rien n'est force cote serveur : les probas restent les leurs.
@@ -360,7 +361,7 @@ want=def();paint();init(8);
       setTimeout(function(){
         var dlg=q('.rp__dialog');
         if(dlg){var c=[].slice.call(dlg.querySelectorAll('button')).find(function(x){
-          return /confirm|valid|^\\s*oui|tenter/i.test((x.textContent||'').trim());});
+        return /confirm|valid|oui|tenter|lancer/i.test((x.textContent||'').trim());});
           if(c){try{c.click();}catch(e){}}}
         if(stat.isConnected) stat.textContent=count+' rolls\\u2026 (R'+rarity()+')';
         setTimeout(loop,500);
@@ -386,6 +387,44 @@ want=def();paint();init(8);
       setCheck('toujours confirmer',true);  // pas de popup a chaque roll
       setTimeout(loop,220);
     }
+    // --- mode xN : on remplit LEUR champ et on clique une fois par lot ---
+    function confirmDialog(){
+      var dlg=q('.rp__dialog'); if(!dlg) return;
+      var c=[].slice.call(dlg.querySelectorAll('button')).find(function(x){
+        return /confirm|valid|oui|tenter|lancer/i.test((x.textContent||'').trim());});
+      if(c){try{c.click();}catch(e){}}
+    }
+    function batch(){
+      if(!running) return;
+      var left=mode.limite-count;
+      if(left<=0){ finish('\u2705 '+count+' tentative(s) \u2014 R'+rarity()); return; }
+      var avail=dispo();
+      if(avail<1){ finish("plus d'Energie rare ("+count+ " tentatives)"); return; }
+      var ni=q('.rp__roll-count-input');
+      if(!ni){ finish('champ « Nombre de rolls » introuvable'); return; }
+      setNum(ni, Math.min(left, 100, avail));
+      var got=parseInt(ni.value,10)||1;        // leur champ borne a 100 / stock
+      var b=rollBtn();
+      if(!b||b.disabled){ finish('bouton indispo ('+count+' tentatives)'); return; }
+      try{b.click();}catch(e){ finish('erreur'); return; }
+      count+=got;
+      if(stat.isConnected)
+        stat.textContent=count+'/'+mode.limite+' tentatives\u2026';
+      setTimeout(function(){ confirmDialog(); waitBatch(0); },200);
+    }
+    // Le lot met du temps cote serveur : on attend le recapitulatif (qu'on
+    // referme) ou le bouton a nouveau actif, plutot qu'un delai fixe.
+    function waitBatch(tries){
+      if(!running) return;
+      confirmDialog();
+      var sum=q('.rp__summary-close');
+      if(sum){ try{sum.click();}catch(e){} setTimeout(batch,350); return; }
+      var b=rollBtn();
+      if(tries>2 && b && !b.disabled){ setTimeout(batch,250); return; }
+      if(tries>60){ finish('pas de reponse du serveur ('+count+')'); return; }
+      setTimeout(function(){ waitBatch(tries+1); },300);
+    }
+
     go.addEventListener('click',function(){
       if(running) return;
       mode={cible:parseInt(sel.value,10)||9, limite:0};
@@ -396,7 +435,11 @@ want=def();paint();init(8);
       var n=parseInt(num.value,10)||0;
       if(n<1){ stat.textContent='nombre invalide'; return; }
       mode={cible:0, limite:n};
-      start();
+      running=true;count=0;
+      go.style.display='none';goN.style.display='none';stop.style.display='';
+      setCheck('sans animation',true);      // resultat direct = plus rapide
+      setCheck('toujours confirmer',true);
+      setTimeout(batch,220);
     });
     stop.addEventListener('click',function(){ finish('arrete ('+count+' rolls)'); });
     wrap.appendChild(lbl);wrap.appendChild(sel);wrap.appendChild(go);
