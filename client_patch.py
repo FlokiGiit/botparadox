@@ -18,7 +18,7 @@ import re
 from client_config import CLIENT_HTML
 
 ORIGIN = "http://127.0.0.1:8765"
-VERSION = 19   # a incrementer si le bloc ci-dessous change
+VERSION = 20   # a incrementer si le bloc ci-dessous change
 
 # L'overlay est un conteneur deplacable (barre du haut) et redimensionnable
 # (poignee en bas a gauche), avec verrou, repli et opacite.
@@ -275,11 +275,14 @@ want=def();paint();init(8);
   // rare) et ECRASE le jet precedent. On ajoute deux facons d'enchainer :
   //   - "roll jusqu'a Rx" : s'arrete des que la cible est atteinte, donc
   //     aucun bon jet n'est ecrase ;
-  //   - "Tenter xN" : le nombre exact de tentatives, saisi librement.
-  // Le mode par cible relance UN roll a la fois (c'est ce qui permet de
-  // s'arreter pile). Le mode xN, lui, passe par LEUR champ « Nombre de rolls »
-  // et enchaine par LOTS de 100 (leur maximum : max={Math.min(100, ressource)}),
-  // sinon 50 tentatives prenaient 50 allers-retours. On pilote LEUR UI (leur bouton, leurs options),
+  //   - "Tenter xN" : au plus N tentatives, ET on s'arrete au rang choisi.
+  // Le mode par cible relance UN roll a la fois, sans limite de nombre. Le mode
+  // xN passe par LEUR champ « Nombre de rolls » et enchaine par LOTS de 100
+  // (leur maximum : max={Math.min(100, ressource)}) — 50 tentatives ne coutent
+  // plus 50 allers-retours. Surtout, on renseigne LEUR « rarete minimale » :
+  // leur action multi-roll prend un minRarityLevel et le serveur arrete le lot
+  // des que le rang est atteint. Le bon jet n'est donc jamais ecrase, meme au
+  // milieu d'un lot de 100 — ce qu'un arret cote client ne saurait pas faire. On pilote LEUR UI (leur bouton, leurs options),
   // on ne recree rien : c'est exactement ce qu'un joueur ferait a la main.
   // SECURITE : si la rarete est illisible, on stoppe (jamais de roll a
   // l'aveugle). Rien n'est force cote serveur : les probas restent les leurs.
@@ -308,6 +311,28 @@ want=def();paint();init(8);
       if(d&&d.set){d.set.call(input,String(val));}else{input.value=String(val);}
       input.dispatchEvent(new Event('input',{bubbles:true}));
       input.dispatchEvent(new Event('change',{bubbles:true}));}catch(e){}
+  }
+  function setSel(sel,val){
+    try{
+      var d=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value');
+      if(d&&d.set){d.set.call(sel,String(val));}else{sel.value=String(val);}
+      sel.dispatchEvent(new Event('input',{bubbles:true}));
+      sel.dispatchEvent(new Event('change',{bubbles:true}));
+    }catch(e){try{sel.value=String(val);}catch(_){}}
+  }
+  // Renseigne LEUR champ « rarete minimale ». C'est lui qui fait arreter le lot
+  // cote serveur (multi-roll prend un minRarityLevel).
+  function setMinRarity(level){
+    var sel=q('.rp__min-rarity-select'); if(!sel) return false;
+    var want=String(level);
+    var opt=[].slice.call(sel.options).find(function(o){
+      if(String(o.value)===want) return true;
+      var t=(o.textContent||'').replace(/[^0-9R]/g,'');
+      return t==='R'+want||t===want;
+    });
+    if(!opt) return false;
+    setSel(sel,opt.value);
+    return String(sel.value)===String(opt.value);
   }
   function setCheck(txt,desired){
     var lbls=[].slice.call(document.querySelectorAll('.rp__checkbox-label'));
@@ -396,6 +421,11 @@ want=def();paint();init(8);
     }
     function batch(){
       if(!running) return;
+      // Rang atteint (par le serveur pendant le lot, ou juste avant) : on
+      // s'arrete la, exactement comme le mode un-par-un.
+      var r0=rarity();
+      if(mode.cible && r0>=mode.cible){
+        finish('\u2705 R'+r0+' atteint ('+count+' tentative(s) au plus)'); return; }
       var left=mode.limite-count;
       if(left<=0){ finish('\u2705 '+count+' tentative(s) \u2014 R'+rarity()); return; }
       var avail=dispo();
@@ -418,7 +448,13 @@ want=def();paint();init(8);
       if(!running) return;
       confirmDialog();
       var sum=q('.rp__summary-close');
-      if(sum){ try{sum.click();}catch(e){} setTimeout(batch,350); return; }
+      if(sum){
+        var reached=!!q('.rp__summary-min-reached');
+        try{sum.click();}catch(e){}
+        if(reached){
+          finish('\u2705 rarete minimum atteinte \u2014 R'+rarity()); return; }
+        setTimeout(batch,350); return;
+      }
       var b=rollBtn();
       if(tries>2 && b && !b.disabled){ setTimeout(batch,250); return; }
       if(tries>60){ finish('pas de reponse du serveur ('+count+')'); return; }
@@ -434,11 +470,17 @@ want=def();paint();init(8);
       if(running) return;
       var n=parseInt(num.value,10)||0;
       if(n<1){ stat.textContent='nombre invalide'; return; }
-      mode={cible:0, limite:n};
+      var cible=parseInt(sel.value,10)||0;
+      mode={cible:cible, limite:n};
       running=true;count=0;
       go.style.display='none';goN.style.display='none';stop.style.display='';
       setCheck('sans animation',true);      // resultat direct = plus rapide
       setCheck('toujours confirmer',true);
+      mode.serveur=setMinRarity(cible);     // arret cote serveur si dispo
+      if(stat.isConnected)
+        stat.textContent=mode.serveur
+          ? ("jusqu'a R"+cible+", max "+n+" tentatives\u2026")
+          : ('max '+n+' tentatives (arret a R'+cible+' entre les lots)\u2026');
       setTimeout(batch,220);
     });
     stop.addEventListener('click',function(){ finish('arrete ('+count+' rolls)'); });
